@@ -72,9 +72,10 @@ public abstract class BaseHikariPool implements HikariPoolMBean, IBagStateListen
    protected final Logger LOGGER = LoggerFactory.getLogger(getClass());
    private static final long ALIVE_BYPASS_WINDOW = Long.getLong("com.zaxxer.hikari.aliveBypassWindow", 1000L);
 
-   protected static final int POOL_RUNNING = 0;
-   protected static final int POOL_SUSPENDED = 1;
-   protected static final int POOL_SHUTDOWN = 2;
+   public static final int POOL_RUNNING = 0;
+   public static final int POOL_SUSPENDED = 1;
+   public static final int POOL_SHUTDOWN = 2;
+   public static final int POOL_FALLBACK = 3;
 
    public final String catalog;
    public final boolean isReadOnly;
@@ -92,7 +93,7 @@ public abstract class BaseHikariPool implements HikariPoolMBean, IBagStateListen
    protected final boolean isUseJdbc4Validation;
    protected final boolean isIsolateInternalQueries;
 
-   protected volatile int poolState;
+   public volatile int poolState;
    protected volatile long connectionTimeout;
    protected volatile long validationTimeout;
    
@@ -177,7 +178,7 @@ public abstract class BaseHikariPool implements HikariPoolMBean, IBagStateListen
     * @return a java.sql.Connection instance
     * @throws SQLException thrown if a timeout occurs trying to obtain a connection
     */
-   public final Connection getConnection() throws SQLException
+   public final ConnectionProxy getConnection() throws SQLException
    {
       return getConnection(connectionTimeout);
    }
@@ -189,7 +190,7 @@ public abstract class BaseHikariPool implements HikariPoolMBean, IBagStateListen
     * @return a java.sql.Connection instance
     * @throws SQLException thrown if a timeout occurs trying to obtain a connection
     */
-   public final Connection getConnection(final long hardTimeout) throws SQLException
+   public final ConnectionProxy getConnection(final long hardTimeout) throws SQLException
    {
       suspendResumeLock.acquire();
       long timeout = hardTimeout;
@@ -378,6 +379,17 @@ public abstract class BaseHikariPool implements HikariPoolMBean, IBagStateListen
       }
    }
 
+   public final void fallback()
+   {
+      suspendResumeLock.acquire();
+      try {
+         poolState = POOL_FALLBACK;
+      }
+      finally {
+         suspendResumeLock.release();
+      }
+   }
+
    public void setMetricRegistry(Object metricRegistry)
    {
       this.isRecordMetrics = metricRegistry != null;
@@ -445,7 +457,7 @@ public abstract class BaseHikariPool implements HikariPoolMBean, IBagStateListen
             
             transactionIsolation = (transactionIsolation < 0 ? connection.getTransactionIsolation() : transactionIsolation);
             
-            poolUtils.setupConnection(connection, isAutoCommit, isReadOnly, transactionIsolation, catalog);
+            setupConnection(connection);
             connectionCustomizer.customize(connection);
             poolUtils.executeSql(connection, configuration.getConnectionInitSql(), isAutoCommit);
             poolUtils.setNetworkTimeout(connection, originalTimeout);
@@ -465,6 +477,11 @@ public abstract class BaseHikariPool implements HikariPoolMBean, IBagStateListen
 
       totalConnections.decrementAndGet(); // We failed or pool is max, so undo speculative increment of totalConnections
       return false;
+   }
+
+   public void setupConnection(Connection connection) throws SQLException
+   {
+      poolUtils.setupConnection(connection, isAutoCommit, isReadOnly, transactionIsolation, catalog);
    }
 
    /**

@@ -16,15 +16,11 @@
 
 package com.zaxxer.hikari.proxy;
 
-import java.sql.CallableStatement;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.Statement;
-
 import com.zaxxer.hikari.pool.HikariPool;
 import com.zaxxer.hikari.pool.LeakTask;
 import com.zaxxer.hikari.pool.PoolBagEntry;
+
+import java.sql.*;
 
 /**
  * A factory class that produces proxies around instances of the standard
@@ -34,6 +30,7 @@ import com.zaxxer.hikari.pool.PoolBagEntry;
  */
 public final class ProxyFactory
 {
+
    private ProxyFactory()
    {
       // unconstructable
@@ -42,36 +39,36 @@ public final class ProxyFactory
    /**
     * Create a proxy for the specified {@link Connection} instance.
     *
-    * @param pool the {@link HikariPool} that will own this proxy
+    * @param pool     the {@link HikariPool} that will own this proxy
     * @param bagEntry the PoolBagEntry entry for this proxy
     * @param leakTask a leak detetection task
     * @return a proxy that wraps the specified {@link Connection}
     */
-   public static IHikariConnectionProxy getProxyConnection(final HikariPool pool, final PoolBagEntry bagEntry, final LeakTask leakTask)
+   public static ConnectionProxy getProxyConnection(final HikariPool pool, final PoolBagEntry bagEntry, final LeakTask leakTask)
    {
       // Body is injected by JavassistProxyFactory
       return null;
    }
 
-   static Statement getProxyStatement(final ConnectionProxy connection, final Statement statement)
+   static StatementProxy getProxyStatement(final ConnectionProxy connection, final Statement statement)
    {
       // Body is injected by JavassistProxyFactory
       return null;
    }
 
-   static CallableStatement getProxyCallableStatement(final ConnectionProxy connection, final CallableStatement statement)
+   static CallableStatementProxy getProxyCallableStatement(final ConnectionProxy connection, final CallableStatement statement)
    {
       // Body is injected by JavassistProxyFactory
       return null;
    }
 
-   static PreparedStatement getProxyPreparedStatement(final ConnectionProxy connection, final PreparedStatement statement)
+   static PreparedStatementProxy getProxyPreparedStatement(final ConnectionProxy connection, final PreparedStatement statement)
    {
       // Body is injected by JavassistProxyFactory
       return null;
    }
 
-   static ResultSet getProxyResultSet(final ConnectionProxy connection, final ResultSet resultSet)
+   static ResultSetProxy getProxyResultSet(final ConnectionProxy connection, final ResultSet resultSet)
    {
       // Body is injected by JavassistProxyFactory
       return null;

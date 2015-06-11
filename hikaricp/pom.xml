@@ -16,6 +16,17 @@
       <url>https://github.com/brettwooldridge</url>
    </organization>
 
+   <dependencies>
+
+      <dependency>
+         <groupId>org.postgresql</groupId>
+         <artifactId>postgresql</artifactId>
+         <version>9.4-1201-jdbc41</version>
+         <scope>test</scope>
+      </dependency>
+
+   </dependencies>
+
    <scm>
       <connection>scm:git:git@github.com:brettwooldridge/HikariCP.git</connection>
       <developerConnection>scm:git:git@github.com:brettwooldridge/HikariCP.git</developerConnection>

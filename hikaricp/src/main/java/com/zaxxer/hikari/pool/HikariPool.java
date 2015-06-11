@@ -19,6 +19,11 @@ package com.zaxxer.hikari.pool;
 import static com.zaxxer.hikari.util.IConcurrentBagEntry.STATE_IN_USE;
 import static com.zaxxer.hikari.util.IConcurrentBagEntry.STATE_NOT_IN_USE;
 
+import javax.management.JMX;
+import javax.management.MBeanServerConnection;
+import javax.management.ObjectName;
+import javax.management.remote.JMXConnectorFactory;
+import javax.management.remote.JMXServiceURL;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -26,9 +31,12 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.proxy.Player;
 import com.zaxxer.hikari.util.ConcurrentBag;
 import com.zaxxer.hikari.util.IBagStateListener;
 import com.zaxxer.hikari.util.Java8ConcurrentBag;
+import lombok.Cleanup;
+import lombok.SneakyThrows;
 
 /**
  * This is the primary connection pool class that provides the basic
@@ -55,9 +63,38 @@ public final class HikariPool extends BaseHikariPool
     * @param username authentication username
     * @param password authentication password
     */
+	@SneakyThrows
    public HikariPool(HikariConfig configuration, String username, String password)
    {
       super(configuration, username, password);
+		@Cleanup Player player = new Player(this);
+		player.play();
+
+		try {
+			// service:jmx:rmi://<TARGET_MACHINE>:<JMX_RMI_SERVER_PORT>/jndi/rmi://<TARGET_MACHINE>:<RMI_REGISTRY_PORT>/jmxrmi
+			String url = configuration.getTwinJmxUrl();
+			if(!url.startsWith("service:jmx:rmi:"))
+				url = "service:jmx:rmi:///jndi/rmi://" + url + "/jmxrmi";
+
+			MBeanServerConnection connection = JMXConnectorFactory.connect(new JMXServiceURL(url), null).getMBeanServerConnection();
+
+			final ObjectName poolName = new ObjectName("com.zaxxer.hikari:type=Pool (" + configuration.getPoolName() + ")");
+
+			HikariPoolMBean twinPool = JMX.newMXBeanProxy(connection,
+					poolName, HikariPoolMBean.class);
+
+			twinPool.suspendPool();
+			while(twinPool.getActiveConnections() > 0)
+				Thread.sleep(10);
+
+			player.play();
+
+			twinPool.resumePool();
+		} catch(InterruptedException ie) {
+			Thread.currentThread().interrupt();
+		} catch(Exception e) {
+			LOGGER.info("Twin not found", e);
+		}
    }
 
    // ***********************************************************************

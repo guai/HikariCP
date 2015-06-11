@@ -23,7 +23,7 @@ import java.sql.CallableStatement;
  *
  * @author Brett Wooldridge
  */
-public abstract class CallableStatementProxy extends PreparedStatementProxy implements CallableStatement
+public abstract class CallableStatementProxy extends GenericPreparedStatementProxy<CallableStatement> implements CallableStatement
 {
    protected CallableStatementProxy(ConnectionProxy connection, CallableStatement statement)
    {

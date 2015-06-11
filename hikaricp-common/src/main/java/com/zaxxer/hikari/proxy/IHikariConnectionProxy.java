@@ -16,11 +16,9 @@
 
 package com.zaxxer.hikari.proxy;
 
-import java.sql.Connection;
-import java.sql.SQLException;
-import java.sql.Statement;
-
 import com.zaxxer.hikari.pool.PoolBagEntry;
+
+import java.sql.Connection;
 
 /**
  * The interface used by the Connection proxy and through which all interaction
@@ -30,6 +28,7 @@ import com.zaxxer.hikari.pool.PoolBagEntry;
  */
 public interface IHikariConnectionProxy extends Connection
 {
+
    /**
     * Get the ConcurrentBag entry that is associated in the pool with the underlying connection.
     *
@@ -44,7 +43,7 @@ public interface IHikariConnectionProxy extends Connection
     * @param sqle the SQLException to check
     * @return return the passed in exception
     */
-   SQLException checkException(SQLException sqle);
+//	SQLException checkException(SQLException sqle);
 
    /**
     * Called by Statement and its subclasses when they are closed to remove them
@@ -52,10 +51,10 @@ public interface IHikariConnectionProxy extends Connection
     *
     * @param statement the Statement to remove from tracking
     */
-   void untrackStatement(Statement statement);
+//	void untrackStatement(Statement statement);
 
    /**
     * Sets the commit state of the connection to dirty.
     */
-   void markCommitStateDirty();
+//	void markCommitStateDirty();
 }

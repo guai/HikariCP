@@ -157,6 +157,32 @@
          <version>${pax.url.version}</version>
          <scope>test</scope>
       </dependency>
+
+      <dependency>
+         <groupId>org.projectlombok</groupId>
+         <artifactId>lombok</artifactId>
+         <version>1.16.2</version>
+         <scope>provided</scope>
+      </dependency>
+
+      <dependency>
+         <groupId>de.ruedigermoeller</groupId>
+         <artifactId>fst</artifactId>
+         <version>2.23</version>
+      </dependency>
+
+      <dependency>
+         <groupId>commons-beanutils</groupId>
+         <artifactId>commons-beanutils</artifactId>
+         <version>1.9.1</version>
+      </dependency>
+
+      <dependency>
+         <groupId>com.google.guava</groupId>
+         <artifactId>guava</artifactId>
+         <version>18.0</version>
+      </dependency>
+
    </dependencies>
 
    <build>

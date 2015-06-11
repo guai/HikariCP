@@ -16,6 +16,14 @@
 
 package com.zaxxer.hikari;
 
+import com.zaxxer.hikari.util.PropertyBeanSetter;
+import com.zaxxer.hikari.util.UtilityElf;
+import lombok.Getter;
+import lombok.Setter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import javax.sql.DataSource;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.sql.Connection;
@@ -26,20 +34,11 @@ import java.util.TreeSet;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 
-import javax.naming.InitialContext;
-import javax.naming.NamingException;
-import javax.sql.DataSource;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import com.codahale.metrics.MetricRegistry;
-import com.codahale.metrics.health.HealthCheckRegistry;
-import com.zaxxer.hikari.util.PropertyBeanSetter;
-import com.zaxxer.hikari.util.UtilityElf;
-
+@Setter
+@Getter
 public abstract class AbstractHikariConfig implements HikariConfigMBean
 {
+
    private static final Logger LOGGER = LoggerFactory.getLogger(HikariConfig.class);
 
    private static final long CONNECTION_TIMEOUT = TimeUnit.SECONDS.toMillis(30);
@@ -57,8 +56,8 @@ public abstract class AbstractHikariConfig implements HikariConfigMBean
    private volatile long idleTimeout;
    private volatile long leakDetectionThreshold;
    private volatile long maxLifetime;
-   private volatile int maxPoolSize;
-   private volatile int minIdle;
+   private volatile int maximumPoolSize;
+   private volatile int minimumIdle;
 
    // Properties NOT changeable at runtime
    //
@@ -72,7 +71,7 @@ public abstract class AbstractHikariConfig implements HikariConfigMBean
    private String jdbcUrl;
    private String password;
    private String poolName;
-   private String transactionIsolationName;
+   private String transactionIsolation;
    private String username;
    private boolean isAutoCommit;
    private boolean isReadOnly;
@@ -82,11 +81,15 @@ public abstract class AbstractHikariConfig implements HikariConfigMBean
    private boolean isAllowPoolSuspension;
    private DataSource dataSource;
    private Properties dataSourceProperties;
+
+   private DataSource dataSource2;
+   private String twinJmxUrl;
+
    private IConnectionCustomizer customizer;
    private ThreadFactory threadFactory;
    private Object metricRegistry;
    private Object healthCheckRegistry;
-   private Properties healthCheckProperties; 
+   private Properties healthCheckProperties;
 
    /**
     * Default constructor
@@ -101,8 +104,8 @@ public abstract class AbstractHikariConfig implements HikariConfigMBean
       idleTimeout = IDLE_TIMEOUT;
       isAutoCommit = true;
       isInitializationFailFast = true;
-      minIdle = -1;
-      maxPoolSize = 10;
+      minimumIdle = -1;
+      maximumPoolSize = 10;
       maxLifetime = MAX_LIFETIME;
       customizer = new IConnectionCustomizer() {
          @Override
@@ -143,51 +146,6 @@ public abstract class AbstractHikariConfig implements HikariConfigMBean
    }
 
    /**
-    * Get the default catalog name to be set on connections.
-    *
-    * @return the default catalog name
-    */
-   public String getCatalog()
-   {
-      return catalog;
-   }
-
-   /**
-    * Set the default catalog name to be set on connections.
-    *
-    * @param catalog the catalog name, or null
-    */
-   public void setCatalog(String catalog)
-   {
-      this.catalog = catalog;
-   }
-
-   /**
-    * Get the name of the connection customizer class to instantiate and execute
-    * on all new connections.
-    *
-    * @return the name of the customizer class, or null
-    */
-   @Deprecated
-   public String getConnectionCustomizerClassName()
-   {
-      return connectionCustomizerClassName;
-   }
-
-   /**
-    * Set the name of the connection customizer class to instantiate and execute
-    * on all new connections.
-    *
-    * @param connectionCustomizerClassName the name of the customizer class
-    */
-   @Deprecated
-   public void setConnectionCustomizerClassName(String connectionCustomizerClassName)
-   {
-      this.connectionCustomizerClassName = connectionCustomizerClassName;
-      LOGGER.warn("The connectionCustomizerClassName property has been deprecated and may be removed in a future release");
-   }
-
-   /**
     * Get the customizer instance specified by the user.
     *
     * @return an instance of IConnectionCustomizer
@@ -210,125 +168,6 @@ public abstract class AbstractHikariConfig implements HikariConfigMBean
       LOGGER.warn("The connectionCustomizer property has been deprecated and may be removed in a future release");
    }
 
-   /**
-    * Get the SQL query to be executed to test the validity of connections.
-    * 
-    * @return the SQL query string, or null 
-    */
-   public String getConnectionTestQuery()
-   {
-      return connectionTestQuery;
-   }
-
-   /**
-    * Set the SQL query to be executed to test the validity of connections. Using
-    * the JDBC4 <code>Connection.isValid()</code> method to test connection validity can
-    * be more efficient on some databases and is recommended.  See 
-    * {@link HikariConfig#setJdbc4ConnectionTest(boolean)}.
-    *
-    * @param connectionTestQuery a SQL query string
-    */
-   public void setConnectionTestQuery(String connectionTestQuery)
-   {
-      this.connectionTestQuery = connectionTestQuery;
-   }
-
-   /**
-    * Get the SQL string that will be executed on all new connections when they are
-    * created, before they are added to the pool.
-    *
-    * @return the SQL to execute on new connections, or null
-    */
-   public String getConnectionInitSql()
-   {
-      return connectionInitSql;
-   }
-
-   /**
-    * Set the SQL string that will be executed on all new connections when they are
-    * created, before they are added to the pool.  If this query fails, it will be
-    * treated as a failed connection attempt.
-    *
-    * @param connectionInitSql the SQL to execute on new connections
-    */
-   public void setConnectionInitSql(String connectionInitSql)
-   {
-      this.connectionInitSql = connectionInitSql;
-   }
-
-   /** {@inheritDoc} */
-   @Override
-   public long getConnectionTimeout()
-   {
-      return connectionTimeout;
-   }
-
-   /** {@inheritDoc} */
-   @Override
-   public void setConnectionTimeout(long connectionTimeoutMs)
-   {
-      if (connectionTimeoutMs == 0) {
-         this.connectionTimeout = Integer.MAX_VALUE;
-      }
-      else if (connectionTimeoutMs < 1000) {
-         throw new IllegalArgumentException("connectionTimeout cannot be less than 1000ms");
-      }
-      else {
-         this.connectionTimeout = connectionTimeoutMs;
-      }
-   }
-
-   /** {@inheritDoc} */
-   @Override
-   public long getValidationTimeout()
-   {
-      return validationTimeout;
-   }
-
-   /** {@inheritDoc} */
-   @Override
-   public void setValidationTimeout(long validationTimeoutMs)
-   {
-      if (validationTimeoutMs < 1000) {
-         throw new IllegalArgumentException("validationTimeout cannot be less than 1000ms");
-      }
-      else {
-         this.validationTimeout = validationTimeoutMs;
-      }
-   }
-
-   /**
-    * Get the {@link DataSource} that has been explicitly specified to be wrapped by the
-    * pool.
-    *
-    * @return the {@link DataSource} instance, or null
-    */
-   public DataSource getDataSource()
-   {
-      return dataSource;
-   }
-
-   /**
-    * Set a {@link DataSource} for the pool to explicitly wrap.  This setter is not
-    * available through property file based initialization.
-    *
-    * @param dataSource a specific {@link DataSource} to be wrapped by the pool
-    */
-   public void setDataSource(DataSource dataSource)
-   {
-      this.dataSource = dataSource;
-   }
-
-   public String getDataSourceClassName()
-   {
-      return dataSourceClassName;
-   }
-
-   public void setDataSourceClassName(String className)
-   {
-      this.dataSourceClassName = className;
-   }
-
    public void addDataSourceProperty(String propertyName, Object value)
    {
       dataSourceProperties.put(propertyName, value);
@@ -342,60 +181,6 @@ public abstract class AbstractHikariConfig implements HikariConfigMBean
    public void setDataSourceJNDI(String jndiDataSource)
    {
       this.dataSourceJndiName = jndiDataSource;
-   }
-
-   public Properties getDataSourceProperties()
-   {
-      return dataSourceProperties;
-   }
-
-   public void setDataSourceProperties(Properties dsProperties)
-   {
-      dataSourceProperties.putAll(dsProperties);
-   }
-
-   public String getDriverClassName()
-   {
-      return driverClassName;
-   }
-
-   public void setDriverClassName(String driverClassName)
-   {
-      try {
-         Class<?> driverClass = this.getClass().getClassLoader().loadClass(driverClassName);
-         driverClass.newInstance();
-         this.driverClassName = driverClassName;
-      }
-      catch (Exception e) {
-         throw new RuntimeException("driverClassName specified class '" + driverClassName + "' could not be loaded", e);
-      }
-   }
-
-   /** {@inheritDoc} */
-   @Override
-   public long getIdleTimeout()
-   {
-      return idleTimeout;
-   }
-
-   /** {@inheritDoc} */
-   @Override
-   public void setIdleTimeout(long idleTimeoutMs)
-   {
-      if (idleTimeoutMs < 0) {
-         throw new IllegalArgumentException("idleTimeout cannot be negative");
-      }
-      this.idleTimeout = idleTimeoutMs;
-   }
-
-   public String getJdbcUrl()
-   {
-      return jdbcUrl;
-   }
-
-   public void setJdbcUrl(String jdbcUrl)
-   {
-      this.jdbcUrl = jdbcUrl;
    }
 
    /**
@@ -485,88 +270,6 @@ public abstract class AbstractHikariConfig implements HikariConfigMBean
       LOGGER.warn("The jdbcConnectionTest property is now deprecated, see the documentation for connectionTestQuery");
    }
 
-   /**
-    * Get the Codahale MetricRegistry, could be null.
-    *
-    * @return the codahale MetricRegistry instance
-    */
-   public Object getMetricRegistry()
-   {
-      return metricRegistry;
-   }
-
-   /**
-    * Set a Codahale MetricRegistry to use for HikariCP.
-    *
-    * @param metricRegistry the Codahale MetricRegistry to set
-    */
-   public void setMetricRegistry(Object metricRegistry)
-   {
-      if (metricRegistry != null) {
-         if (metricRegistry instanceof String) {
-            try {
-               InitialContext initCtx = new InitialContext();
-               metricRegistry = (MetricRegistry) initCtx.lookup((String) metricRegistry);
-            }
-            catch (NamingException e) {
-               throw new IllegalArgumentException(e);
-            }
-         }
-
-         if (!(metricRegistry instanceof MetricRegistry)) {
-            throw new IllegalArgumentException("Class must be an instance of com.codahale.metrics.MetricRegistry");            
-         }
-      }
-
-      this.metricRegistry = metricRegistry;
-   }
-
-   /**
-    * Get the Codahale HealthCheckRegistry, could be null.
-    *
-    * @return the Codahale HealthCheckRegistry instance
-    */
-   public Object getHealthCheckRegistry()
-   {
-      return healthCheckRegistry;
-   }
-
-   /**
-    * Set a Codahale HealthCheckRegistry to use for HikariCP.
-    *
-    * @param healthCheckRegistry the Codahale HealthCheckRegistry to set
-    */
-   public void setHealthCheckRegistry(Object healthCheckRegistry)
-   {
-      if (healthCheckRegistry != null) {
-         if (healthCheckRegistry instanceof String) {
-            try {
-               InitialContext initCtx = new InitialContext();
-               healthCheckRegistry = (HealthCheckRegistry) initCtx.lookup((String) healthCheckRegistry);
-            }
-            catch (NamingException e) {
-               throw new IllegalArgumentException(e);
-            }
-         }
-
-         if (!(healthCheckRegistry instanceof HealthCheckRegistry)) {
-            throw new IllegalArgumentException("Class must be an instance of com.codahale.metrics.health.HealthCheckRegistry");
-         }
-      }
-
-      this.healthCheckRegistry = healthCheckRegistry;
-   }
-
-   public Properties getHealthCheckProperties()
-   {
-      return healthCheckProperties;
-   }
-
-   public void setHealthCheckProperties(Properties healthCheckProperties)
-   {
-      this.healthCheckProperties.putAll(healthCheckProperties);
-   }
-
    public void addHealthCheckProperty(String key, String value)
    {
       healthCheckProperties.setProperty(key, value);
@@ -592,159 +295,28 @@ public abstract class AbstractHikariConfig implements HikariConfigMBean
       this.isRegisterMbeans = register;
    }
 
-   /** {@inheritDoc} */
-   @Override
-   public long getLeakDetectionThreshold()
-   {
-      return leakDetectionThreshold;
-   }
-
-   /** {@inheritDoc} */
-   @Override
-   public void setLeakDetectionThreshold(long leakDetectionThresholdMs)
-   {
-      this.leakDetectionThreshold = leakDetectionThresholdMs;
-   }
-
-   /** {@inheritDoc} */
-   @Override
-   public long getMaxLifetime()
-   {
-      return maxLifetime;
-   }
-
-   /** {@inheritDoc} */
-   @Override
-   public void setMaxLifetime(long maxLifetimeMs)
-   {
-      this.maxLifetime = maxLifetimeMs;
-   }
-
-   /** {@inheritDoc} */
-   @Override
-   public int getMaximumPoolSize()
-   {
-      return maxPoolSize;
-   }
-
-   /** {@inheritDoc} */
+   /**
+    * {@inheritDoc}
+    */
    @Override
    public void setMaximumPoolSize(int maxPoolSize)
    {
       if (maxPoolSize < 1) {
-         throw new IllegalArgumentException("maxPoolSize cannot be less than 1");
+         throw new IllegalArgumentException("maximumPoolSize cannot be less than 1");
       }
-      this.maxPoolSize = maxPoolSize;
+      this.maximumPoolSize = maxPoolSize;
    }
 
-   /** {@inheritDoc} */
-   @Override
-   public int getMinimumIdle()
-   {
-      return minIdle;
-   }
-
-   /** {@inheritDoc} */
+   /**
+    * {@inheritDoc}
+    */
    @Override
    public void setMinimumIdle(int minIdle)
    {
       if (minIdle < 0) {
          throw new IllegalArgumentException("minimumIdle cannot be negative");
       }
-      this.minIdle = minIdle;
-   }
-
-   /**
-    * Get the default password to use for DataSource.getConnection(username, password) calls.
-    * @return the password
-    */
-   public String getPassword()
-   {
-      return password;
-   }
-
-   /**
-    * Set the default password to use for DataSource.getConnection(username, password) calls.
-    * @param password the password
-    */
-   public void setPassword(String password)
-   {
-      this.password = password;
-   }
-
-   /** {@inheritDoc} */
-   @Override
-   public String getPoolName()
-   {
-      return poolName;
-   }
-
-   /**
-    * Set the name of the connection pool.  This is primarily used for the MBean
-    * to uniquely identify the pool configuration.
-    *
-    * @param poolName the name of the connection pool to use
-    */
-   public void setPoolName(String poolName)
-   {
-      this.poolName = poolName;
-   }
-
-   public String getTransactionIsolation()
-   {
-      return transactionIsolationName;
-   }
-
-   /**
-    * Set the default transaction isolation level.  The specified value is the
-    * constant name from the <code>Connection</code> class, eg. 
-    * <code>TRANSACTION_REPEATABLE_READ</code>.
-    *
-    * @param isolationLevel the name of the isolation level
-    */
-   public void setTransactionIsolation(String isolationLevel)
-   {
-      this.transactionIsolationName = isolationLevel;
-   }
-
-   /**
-    * Get the default username used for DataSource.getConnection(username, password) calls.
-    *
-    * @return the username
-    */
-   public String getUsername()
-   {
-      return username;
-   }
-
-   /**
-    * Set the default username used for DataSource.getConnection(username, password) calls.
-    *
-    * @param username the username
-    */
-   public void setUsername(String username)
-   {
-      this.username = username;
-   }
-
-   /**
-    * Get the thread factory used to create threads.
-    *
-    * @return the thread factory (may be null, in which case the default thread factory is used)
-    */
-   public ThreadFactory getThreadFactory()
-   {
-      return threadFactory;
-   }
-
-   /**
-    * Set the thread factory to be used to create threads.
-    *
-    * @param threadFactory the thread factory (setting to null causes the default thread factory to be used)
-    */
-   public void setThreadFactory(ThreadFactory threadFactory)
-   {
-      this.threadFactory = threadFactory;
+      this.minimumIdle = minIdle;
    }
 
    public void validate()
@@ -782,8 +354,8 @@ public abstract class AbstractHikariConfig implements HikariConfigMBean
          logger.warn("both dataSource and dataSourceClassName are specified, ignoring dataSourceClassName");
       }
 
-      if (transactionIsolationName != null) {
-         UtilityElf.getTransactionIsolation(transactionIsolationName);
+      if (transactionIsolation != null) {
+         UtilityElf.getTransactionIsolation(transactionIsolation);
       }
 
       if (poolName == null) {
@@ -804,8 +376,8 @@ public abstract class AbstractHikariConfig implements HikariConfigMBean
          validationTimeout = connectionTimeout;
       }
 
-      if (minIdle < 0 || minIdle > maxPoolSize) {
-         minIdle = maxPoolSize;
+      if (minimumIdle < 0 || minimumIdle > maximumPoolSize) {
+         minimumIdle = maximumPoolSize;
       }
 
       if (maxLifetime < 0) {

@@ -23,7 +23,7 @@ import java.lang.reflect.Array;
  *
  * @author Brett Wooldridge
  */
-public final class FastList<T>
+public final class FastList<T> implements Iterable<T>
 {
    private final Class<?> clazz;
    private T[] elementData;
@@ -140,5 +140,40 @@ public final class FastList<T>
    public int size()
    {
       return size;
+   }
+
+   @Override
+   public NTimesIterator<T> iterator()
+   {
+      return new NTimesIterator<T>(size())
+      {
+         @Override
+         public T next()
+         {
+            return get(i);
+         }
+      };
+   }
+
+   public abstract static class NTimesIterator<T> implements java.util.Iterator<T>
+   {
+
+      private final int n;
+      protected int i;
+
+      public NTimesIterator(int n)
+      {
+         this.n = n;
+         this.i = -1;
+      }
+
+      @Override
+      public boolean hasNext()
+      {
+         return ++i < n;
+      }
+
+      @Override
+      abstract public T next();
    }
 }
