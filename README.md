@@ -35,4 +35,3 @@ Still alive instance of activiti will take incomplete jobs and will run them aft
 6. Modifiable ResultSets not supported. And I afraid can never be supported - make sure<br/>
 7. more tests; automate them somehow<br/>
 8. not all exceptions on slave connection should cause fallback to table<br/>
-9. Not every suspend-resume means that DBs now in sync, make explicit JMX method<br/>

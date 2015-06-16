@@ -76,7 +76,8 @@ public final class ProxyFactory
 
    static Class classByHashCode(int hashCode) throws ClassNotFoundException
    {
-      return null;
+      // Body is injected by JavassistProxyFactory
+      throw new ClassNotFoundException();
    }
 
 }

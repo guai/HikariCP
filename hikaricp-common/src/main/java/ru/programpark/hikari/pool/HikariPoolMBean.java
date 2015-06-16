@@ -35,5 +35,7 @@ public interface HikariPoolMBean
 
    void suspendPool();
 
+   void restoreDirect();
+
    void resumePool();
 }

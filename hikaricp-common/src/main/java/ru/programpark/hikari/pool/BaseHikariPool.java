@@ -89,6 +89,7 @@ public abstract class BaseHikariPool implements HikariPoolMBean, IBagStateListen
    protected final boolean isIsolateInternalQueries;
 
    public volatile int poolState;
+   public volatile int prevPoolState;
    protected volatile long connectionTimeout;
    protected volatile long validationTimeout;
    
@@ -364,8 +365,14 @@ public abstract class BaseHikariPool implements HikariPoolMBean, IBagStateListen
       }
       else if (poolState != POOL_SUSPENDED) {
          suspendResumeLock.suspend();
+         prevPoolState = poolState;
          poolState = POOL_SUSPENDED;
       }
+   }
+
+   @Override public void restoreDirect()
+   {
+      prevPoolState = POOL_RUNNING;
    }
 
    /** {@inheritDoc} */
@@ -373,7 +380,7 @@ public abstract class BaseHikariPool implements HikariPoolMBean, IBagStateListen
    public final void resumePool()
    {
       if (poolState == POOL_SUSPENDED) {
-         poolState = POOL_RUNNING;
+         poolState = prevPoolState;
          addBagItem(); // re-populate the pool
          suspendResumeLock.resume();
       }
