@@ -1,4 +1,4 @@
-![](https://github.com/brettwooldridge/HikariCP/wiki/Hikari.png) HikariCP can be found [here](https://github.com/brettwooldridge/HikariCP)
+![](https://github.com/brettwooldridge/HikariCP/wiki/Hikari.png) original HikariCP can be found [here](https://github.com/brettwooldridge/HikariCP)
 ==========
 ----------------------------------------------------
 
@@ -33,7 +33,6 @@ Still alive instance of activiti will take incomplete jobs and will run them aft
 4. Savepoints not supported yet. Not sure what to do on abort(), setNetworkTimeout(), etc.<br/>
 5. BLOBs hardcoded; not all BLOB cases tested; BLOBs go through byte arrays<br/>
 6. Modifiable ResultSets not supported. And I afraid can never be supported - make sure<br/>
-7. rename package so it could be used along with original HikariCP<br/>
-8. more tests; automate them somehow<br/>
-9. not all exceptions on slave connection should cause fallback to table<br/>
-10. Not every suspend-resume means that DBs now in sync, make explicit JMX method<br/>
+7. more tests; automate them somehow<br/>
+8. not all exceptions on slave connection should cause fallback to table<br/>
+9. Not every suspend-resume means that DBs now in sync, make explicit JMX method<br/>

@@ -12,7 +12,7 @@
 	</properties>
 
 	<parent>
-		<groupId>com.zaxxer</groupId>
+		<groupId>ru.programpark</groupId>
 		<artifactId>HikariCP-parent</artifactId>
 		<version>2.3.7-SNAPSHOT</version>
 	</parent>

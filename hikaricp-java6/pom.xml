@@ -45,7 +45,7 @@
    </properties>
 
    <parent>
-      <groupId>com.zaxxer</groupId>
+      <groupId>ru.programpark</groupId>
       <artifactId>HikariCP-parent</artifactId>
       <version>2.3.8</version>
    </parent>
@@ -122,14 +122,14 @@
                <instructions>
                   <Bundle-Name>HikariCP-java6</Bundle-Name>
                   <Export-Package>
-                     com.zaxxer.hikari,
-                     com.zaxxer.hikari.hibernate
+                     ru.programpark.hikari,
+                     ru.programpark.hikari.hibernate
                   </Export-Package>
-                  <Private-Package>com.zaxxer.hikari.*</Private-Package>
+                  <Private-Package>ru.programpark.hikari.*</Private-Package>
                   <_exportcontents>
-                     com.zaxxer.hikari.pool,
-                     com.zaxxer.hikari.util,
-                     com.zaxxer.hikari.proxy
+                     ru.programpark.hikari.pool,
+                     ru.programpark.hikari.util,
+                     ru.programpark.hikari.proxy
                   </_exportcontents>
                   <Import-Package>
                      javassist.*,
