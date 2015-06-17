@@ -6,9 +6,7 @@ import lombok.Cleanup;
 import lombok.SneakyThrows;
 import org.apache.commons.beanutils.MethodUtils;
 import ru.programpark.hikari.pool.HikariPool;
-import ru.programpark.hikari.util.CacheByteSource;
-import ru.programpark.hikari.util.CacheCharSource;
-import ru.programpark.hikari.util.FstHelper;
+import ru.programpark.hikari.util.FSTHelper;
 
 import java.lang.reflect.Method;
 import java.net.URL;
@@ -107,7 +105,7 @@ public class Player implements AutoCloseable
          String methodName = resultSet.getString(5);
          byte[] serializedArgs = resultSet.getBytes(6);
 
-         Object[] args = serializedArgs == null ? null : (Object[]) FstHelper.fst.asObject(serializedArgs);
+         Object[] args = serializedArgs == null ? null : (Object[]) FSTHelper.FST.asObject(serializedArgs);
 
          Class clazz = ProxyFactory.classByHashCode(classHashCode);
 
@@ -132,15 +130,6 @@ public class Player implements AutoCloseable
 
          else if (Statement.class.isAssignableFrom(clazz)) {
             Statement statement = statements.get(statementId);
-
-            // todo generalize
-            if (methodName.startsWith("set") && methodName.endsWith("Stream")) {
-               assert args != null && args.length >= 1;
-               if (args[1] instanceof CacheByteSource)
-                  args[1] = ((CacheByteSource) args[1]).openStream();
-               if (args[1] instanceof CacheCharSource)
-                  args[1] = ((CacheCharSource) args[1]).openStream();
-            }
 
             Method method = MethodUtils.getMatchingAccessibleMethod(clazz, methodName, args == null ? emptyClassArray : argsClasses(args));
             method.invoke(statement, args == null ? emptyObjectArray : args);

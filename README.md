@@ -31,7 +31,6 @@ Still alive instance of activiti will take incomplete jobs and will run them aft
 2. filter statements that were successfully written to DB<br/>
 3. I suspect there and redundant drainQueue() calls<br/>
 4. Savepoints not supported yet. Not sure what to do on abort(), setNetworkTimeout(), etc.<br/>
-5. BLOBs hardcoded; not all BLOB cases tested; BLOBs go through byte arrays<br/>
+5. not all BLOB cases tested; BLOBs go through byte arrays<br/>
 6. Modifiable ResultSets not supported. And I afraid can never be supported - make sure<br/>
 7. more tests; automate them somehow<br/>
-8. not all exceptions on slave connection should cause fallback to table<br/>

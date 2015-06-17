@@ -6,9 +6,8 @@ import lombok.SneakyThrows;
 
 import java.io.*;
 
-public class CacheByteSource extends ByteSource implements Externalizable
+public class CacheByteSource extends ByteSource
 {
-
    private ByteSource byteSource;
 
    @SneakyThrows
@@ -27,27 +26,5 @@ public class CacheByteSource extends ByteSource implements Externalizable
    public InputStream openStream() throws IOException
    {
       return byteSource.openStream();
-   }
-
-   @Deprecated
-   public CacheByteSource()
-   {
-   }
-
-   @Override
-   public void writeExternal(ObjectOutput out) throws IOException
-   {
-      byte[] bytea = ByteStreams.toByteArray(byteSource.openStream());
-      out.writeInt(bytea.length);
-      out.write(bytea);
-   }
-
-   @Override
-   public void readExternal(ObjectInput in) throws IOException, ClassNotFoundException
-   {
-      int len = in.readInt();
-      byte[] bytea = new byte[len];
-      in.read(bytea);
-      byteSource = ByteSource.wrap(bytea);
    }
 }

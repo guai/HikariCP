@@ -22,7 +22,7 @@ import ru.programpark.hikari.pool.HikariPool;
 import ru.programpark.hikari.pool.LeakTask;
 import ru.programpark.hikari.pool.PoolBagEntry;
 import ru.programpark.hikari.util.FastList;
-import ru.programpark.hikari.util.FstHelper;
+import ru.programpark.hikari.util.FSTHelper;
 
 import java.sql.*;
 import java.util.HashSet;
@@ -179,7 +179,7 @@ public abstract class ConnectionProxy implements IHikariConnectionProxy
             if (record.args.length == 0)
                fallbackInsert.setNull(5, Types.NULL);
             else
-               fallbackInsert.setBytes(5, FstHelper.fst.asByteArray(record.args));
+               fallbackInsert.setBytes(5, FSTHelper.FST.asByteArray(record.args));
 
             fallbackInsert.addBatch();
             iterator.remove();
