@@ -8,18 +8,18 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.ArrayDeque;
+import java.util.ArrayList;
 
 /**
  * This class implements a simple single-threaded proxy server.
  **/
-public class SimpleProxy extends Thread
+public class SimpleProxy extends Thread implements AutoCloseable
 {
 
    private final String host;
    private final int remoteport;
    private final int localport;
-   private final ArrayDeque<Closeable> sockets = new ArrayDeque<>();
+   private final ArrayList<Closeable> sockets = new ArrayList<>();
 
    public SimpleProxy(String host, int remoteport, int localport, boolean daemon)
    {
@@ -39,74 +39,66 @@ public class SimpleProxy extends Thread
    @SneakyThrows
    public void run()
    {
-      try(ServerSocket listeningSocket = new ServerSocket(localport)) {
+      ServerSocket listeningSocket = new ServerSocket(localport);
+      sockets.add(listeningSocket);
 
-         while (true) {
-            try {
-               final Socket client = listeningSocket.accept();
+      while (true) {
+         final Socket client = listeningSocket.accept();
 
-               sockets.add(client);
+         sockets.add(client);
 
-               final InputStream from_client = client.getInputStream();
-               final OutputStream to_client = client.getOutputStream();
+         final InputStream from_client = client.getInputStream();
+         final OutputStream to_client = client.getOutputStream();
 
-               final Socket server = new Socket(host, remoteport);
+         final Socket server = new Socket(host, remoteport);
 
-               final InputStream from_server = server.getInputStream();
-               final OutputStream to_server = server.getOutputStream();
+         final InputStream from_server = server.getInputStream();
+         final OutputStream to_server = server.getOutputStream();
 
-               sockets.add(server);
+         sockets.add(server);
 
-               final Thread t1 = new Thread("Proxy worker")
-               {
-                  @SneakyThrows public void run()
-                  {
-                     final byte[] buffer = new byte[4096];
-                     int bytes_read;
-                     try {
-                        while (true) {
-                           bytes_read = from_client.read(buffer);
-                           to_server.write(buffer, 0, bytes_read);
-                           to_server.flush();
-                        }
-                     }
-                     catch (IOException e) {
-                        System.err.println(e.getMessage());
-                     }
+         final Thread t1 = new Thread("Proxy worker")
+         {
+            @SneakyThrows
+            public void run()
+            {
+               final byte[] buffer = new byte[4096];
+               int bytes_read;
+               try {
+                  while (true) {
+                     bytes_read = from_client.read(buffer);
+                     to_server.write(buffer, 0, bytes_read);
+                     to_server.flush();
                   }
-               };
-               t1.setDaemon(true);
-               t1.start();
+               }
+               catch (IOException e) {
+               }
+            }
+         };
+         t1.setDaemon(true);
+         t1.start();
 
-               final Thread t2 = new Thread("Proxy worker")
-               {
-                  @SneakyThrows public void run()
-                  {
-                     byte[] buffer = new byte[4096];
-                     int bytes_read;
-                     try {
-                        while (true) {
-                           bytes_read = from_server.read(buffer);
-                           to_client.write(buffer, 0, bytes_read);
-                           to_client.flush();
-                           Thread.sleep(0);
-                        }
-                     }
-                     catch (IOException e) {
-                        System.err.println(e.getMessage());
-                     }
+         final Thread t2 = new Thread("Proxy worker")
+         {
+            @SneakyThrows
+            public void run()
+            {
+               byte[] buffer = new byte[4096];
+               int bytes_read;
+               try {
+                  while (true) {
+                     bytes_read = from_server.read(buffer);
+                     to_client.write(buffer, 0, bytes_read);
+                     to_client.flush();
+                     Thread.sleep(0);
                   }
-               };
-               t2.setDaemon(true);
-               t2.start();
-
+               }
+               catch (IOException e) {
+               }
             }
-
-            catch (IOException e) {
-               e.printStackTrace(System.err);
-            }
-         }
-      } finally {
+         };
+         t2.setDaemon(true);
+         t2.start();
       }
    }
 
@@ -117,16 +109,14 @@ public class SimpleProxy extends Thread
    }
 
    @Override
-   public void interrupt()
+   public void close()
    {
       for (Closeable socket : sockets)
          try {
             socket.close();
          }
          catch (IOException e) {
-            System.err.println(e.getMessage());
          }
-      super.interrupt();
    }
 
    public static void main(String... args) {

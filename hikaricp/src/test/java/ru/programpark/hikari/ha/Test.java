@@ -55,7 +55,8 @@ public class Test
          @SneakyThrows
          public void actionPerformed(ActionEvent e)
          {
-            proxy = new SimpleProxy("localhost", 5433, 65433).started();
+            if(proxy == null)
+               proxy = new SimpleProxy("localhost", 5433, 65433).started();
 
             @Cleanup Connection con = hikari.getConnection();
 
@@ -81,7 +82,8 @@ public class Test
 
          con.commit();
 //			con.rollback();
-         proxy.interrupt();
+         proxy.close();
+         proxy = null;
 
          @Cleanup PreparedStatement pst1 = con.prepareStatement("INSERT INTO table1 VALUES(?)");
          @Cleanup InputStream blob1 = Test.class.getClassLoader().getResource("propfile2.properties").openStream();

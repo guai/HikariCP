@@ -24,9 +24,8 @@ import javax.management.MBeanServerConnection;
 import javax.management.ObjectName;
 import javax.management.remote.JMXConnectorFactory;
 import javax.management.remote.JMXServiceURL;
-import java.sql.Connection;
-import java.sql.SQLException;
-import java.sql.Statement;
+import javax.sql.DataSource;
+import java.sql.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 
@@ -68,34 +67,33 @@ public final class HikariPool extends BaseHikariPool
    {
       super(configuration, username, password);
       @Cleanup Player player = new Player(this);
-      player.play();
+      if(player.play())
+         try {
+            // service:jmx:rmi://<TARGET_MACHINE>:<JMX_RMI_SERVER_PORT>/jndi/rmi://<TARGET_MACHINE>:<RMI_REGISTRY_PORT>/jmxrmi
+            String url = configuration.getTwinJmxUrl();
+            if(!url.startsWith("service:jmx:rmi:"))
+               url = "service:jmx:rmi:///jndi/rmi://" + url + "/jmxrmi";
 
-      try {
-         // service:jmx:rmi://<TARGET_MACHINE>:<JMX_RMI_SERVER_PORT>/jndi/rmi://<TARGET_MACHINE>:<RMI_REGISTRY_PORT>/jmxrmi
-         String url = configuration.getTwinJmxUrl();
-         if(!url.startsWith("service:jmx:rmi:"))
-            url = "service:jmx:rmi:///jndi/rmi://" + url + "/jmxrmi";
+            MBeanServerConnection connection = JMXConnectorFactory.connect(new JMXServiceURL(url), null).getMBeanServerConnection();
 
-         MBeanServerConnection connection = JMXConnectorFactory.connect(new JMXServiceURL(url), null).getMBeanServerConnection();
+            final ObjectName poolName = new ObjectName("ru.programpark.hikari:type=Pool (" + configuration.getPoolName() + ")");
 
-         final ObjectName poolName = new ObjectName("ru.programpark.hikari:type=Pool (" + configuration.getPoolName() + ")");
+            HikariPoolMBean twinPool = JMX.newMXBeanProxy(connection,
+                                                          poolName, HikariPoolMBean.class);
 
-         HikariPoolMBean twinPool = JMX.newMXBeanProxy(connection,
-                                                       poolName, HikariPoolMBean.class);
+            twinPool.suspendPool();
+            while(twinPool.getActiveConnections() > 0)
+               Thread.sleep(10);
 
-         twinPool.suspendPool();
-         while(twinPool.getActiveConnections() > 0)
-            Thread.sleep(10);
+            player.play();
 
-         player.play();
-
-         twinPool.restoreDirect();
-         twinPool.resumePool();
-      } catch(InterruptedException ie) {
-         Thread.currentThread().interrupt();
-      } catch(Exception e) {
-         LOGGER.info("Twin not found", e);
-      }
+            twinPool.restoreDirect();
+            twinPool.resumePool();
+         } catch(InterruptedException ie) {
+            Thread.currentThread().interrupt();
+         } catch(Exception e) {
+            LOGGER.info("Twin not found", e);
+         }
    }
 
    // ***********************************************************************

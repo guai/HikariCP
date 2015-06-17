@@ -1,14 +1,18 @@
 package ru.programpark.hikari.proxy;
 
+import com.google.common.base.Splitter;
+import com.google.common.io.Resources;
+import lombok.Cleanup;
+import lombok.SneakyThrows;
+import org.apache.commons.beanutils.MethodUtils;
 import ru.programpark.hikari.pool.HikariPool;
 import ru.programpark.hikari.util.CacheByteSource;
 import ru.programpark.hikari.util.CacheCharSource;
 import ru.programpark.hikari.util.FstHelper;
-import lombok.Cleanup;
-import lombok.SneakyThrows;
-import org.apache.commons.beanutils.MethodUtils;
 
 import java.lang.reflect.Method;
+import java.net.URL;
+import java.nio.charset.Charset;
 import java.sql.*;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -39,15 +43,42 @@ public class Player implements AutoCloseable
    private final PreparedStatement delete;
    private HikariPool pool;
    private ConnectionProxy connectionProxy;
-   private HashMap<Integer, ConnectionProxy> connections = new HashMap<Integer, ConnectionProxy>(10);
+   private HashMap<Integer, Connection> connections = new HashMap<Integer, Connection>(10);
    private HashMap<Integer, Statement> statements = new HashMap<Integer, Statement>(30);
+
+   @SneakyThrows
+   private static boolean createInvocationQueueTable(Connection connection)
+   {
+      connection.setAutoCommit(false);
+      DatabaseMetaData metaData = connection.getMetaData();
+      @Cleanup ResultSet tables = metaData.getTables(null, null, "invocation_queue", new String[] { "TABLE" });
+
+      if (tables.next())
+         return false;
+      else {
+         @Cleanup Statement statement = connection.createStatement();
+         String db = metaData.getDatabaseProductName().toLowerCase();
+         URL resource = Resources.getResource("create-invocation_queue-postgresql.sql");
+         if(resource == null)
+            throw new RuntimeException("Resource create-invocation_queue-" + db + " not found");
+         String sqls = Resources.asCharSource(resource, Charset.forName("UTF-8")).read();
+         for (String sql : Splitter.on("\n\n").omitEmptyStrings().split(sqls))
+            statement.execute(sql);
+         connection.commit();
+         return true;
+      }
+   }
 
    @SneakyThrows
    public Player(HikariPool pool)
    {
       this.pool = pool;
       this.connectionProxy = pool.getConnection();
-      connectionProxy.delegate2.setAutoCommit(false);
+      createInvocationQueueTable(connectionProxy.delegate);
+      if(createInvocationQueueTable(connectionProxy.delegate2)) {
+         select = delete = null;
+         return;
+      }
       select = connectionProxy.delegate2.prepareStatement("SELECT * FROM invocation_queue");
       delete = connectionProxy.delegate2.prepareStatement("DELETE FROM invocation_queue WHERE id = ?");
    }
@@ -63,8 +94,10 @@ public class Player implements AutoCloseable
    }
 
    @SneakyThrows
-   public void play()
+   public boolean play()
    {
+      if(select == null)
+         return false;
       @Cleanup ResultSet resultSet = select.executeQuery();
       while (resultSet.next()) {
          int id = resultSet.getInt(1);
@@ -80,12 +113,12 @@ public class Player implements AutoCloseable
 
          if (Connection.class.isAssignableFrom(clazz)) {
 
-            ConnectionProxy connectionProxy = connections.get(connectionId);
-            if (connectionProxy == null) {
-               connectionProxy = pool.getConnection();
-               connections.put(connectionId, connectionProxy);
+            Connection connection = connections.get(connectionId);
+            if (connection == null) {
+               connection = pool.getDataSource().getConnection();
+               connection.setAutoCommit(false);
+               connections.put(connectionId, connection);
             }
-            Connection connection = connectionProxy.delegate;
 
             Method method = MethodUtils.getMatchingAccessibleMethod(clazz, methodName, args == null ? emptyClassArray : argsClasses(args));
             Object result = method.invoke(connection, args == null ? emptyObjectArray : args);
@@ -126,6 +159,16 @@ public class Player implements AutoCloseable
       }
       delete.executeBatch();
       connectionProxy.delegate2.commit();
+      return true;
+   }
+
+   static void close(AutoCloseable what) {
+      if(what == null)
+         return;
+      try {
+         what.close();
+      } catch (Exception e) {
+      }
    }
 
    static <T extends AutoCloseable> void closeAll(Iterable<T> iterable)
@@ -133,11 +176,7 @@ public class Player implements AutoCloseable
       Iterator<T> iterator = iterable.iterator();
       while (iterator.hasNext()) {
          T item = iterator.next();
-         try {
-            item.close();
-         }
-         catch (Exception e) {
-         }
+         close(item);
          iterator.remove();
       }
    }
@@ -147,20 +186,8 @@ public class Player implements AutoCloseable
    {
       closeAll(statements.values());
       closeAll(connections.values());
-      try {
-         delete.close();
-      }
-      catch (SQLException e) {
-      }
-      try {
-         select.close();
-      }
-      catch (SQLException e) {
-      }
-      try {
-         connectionProxy.close();
-      }
-      catch (SQLException e) {
-      }
+      close(delete);
+      close(select);
+      close(connectionProxy);
    }
 }
