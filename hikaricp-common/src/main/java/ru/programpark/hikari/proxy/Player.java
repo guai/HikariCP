@@ -4,7 +4,7 @@ import com.google.common.base.Splitter;
 import com.google.common.io.Resources;
 import lombok.Cleanup;
 import lombok.SneakyThrows;
-import org.apache.commons.beanutils.MethodUtils;
+import org.apache.commons.lang3.reflect.MethodUtils;
 import ru.programpark.hikari.pool.HikariPool;
 import ru.programpark.hikari.util.FSTHelper;
 
