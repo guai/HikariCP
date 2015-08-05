@@ -75,7 +75,7 @@ public class Player implements AutoCloseable
          select = delete = null;
          return;
       }
-      select = connectionProxy.delegate2.prepareStatement("SELECT * FROM invocation_queue");
+      select = connectionProxy.delegate2.prepareStatement("SELECT * FROM invocation_queue ORDER BY id");
       delete = connectionProxy.delegate2.prepareStatement("DELETE FROM invocation_queue WHERE id = ?");
    }
 

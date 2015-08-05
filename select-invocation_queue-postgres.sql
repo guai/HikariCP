@@ -11,4 +11,4 @@ SELECT
 		method_name,
 		args,
 		length(args)
-	FROM invocation_queue;
+	FROM invocation_queue ORDER BY id;
