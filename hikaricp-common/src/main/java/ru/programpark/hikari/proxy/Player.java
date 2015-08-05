@@ -56,9 +56,7 @@ public class Player implements AutoCloseable
       else {
          @Cleanup Statement statement = connection.createStatement();
          String db = metaData.getDatabaseProductName().toLowerCase();
-         URL resource = Resources.getResource("create-invocation_queue-postgresql.sql");
-         if(resource == null)
-            throw new RuntimeException("Resource create-invocation_queue-" + db + " not found");
+         URL resource = Resources.getResource("create-invocation_queue-" + db + ".sql");
          String sqls = Resources.asCharSource(resource, Charset.forName("UTF-8")).read();
          for (String sql : Splitter.on("\n\n").omitEmptyStrings().split(sqls))
             statement.execute(sql);

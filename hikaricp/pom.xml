@@ -163,6 +163,20 @@
                   </configuration>
                </execution>
                <execution>
+                  <id>add-resource</id>
+                  <phase>generate-resources</phase>
+                  <goals>
+                     <goal>add-resource</goal>
+                  </goals>
+                  <configuration>
+                     <resources>
+                        <resource>
+                           <directory>../hikaricp-common/src/main/resources</directory>
+                        </resource>
+                     </resources>
+                  </configuration>
+               </execution>
+               <execution>
                   <id>test-resources</id>
                   <phase>generate-test-resources</phase>
                   <goals>

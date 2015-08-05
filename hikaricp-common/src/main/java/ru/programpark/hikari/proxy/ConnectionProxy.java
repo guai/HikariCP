@@ -297,9 +297,7 @@ public abstract class ConnectionProxy implements IHikariConnectionProxy
             }
       }
 
-      Iterator<Record> iterator = invocationQueue.iterator();
-      while (iterator.hasNext())
-         iterator.remove();
+      invocationQueue.clear();
    }
 
    // **********************************************************************
