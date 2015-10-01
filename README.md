@@ -34,3 +34,4 @@ Still alive instance of activiti will take incomplete jobs and will run them aft
 5. not all BLOB cases tested; BLOBs go through byte arrays<br/>
 6. Modifiable ResultSets not supported. And I afraid can never be supported - make sure<br/>
 7. more tests; automate them somehow<br/>
+8. reset ID after invocation_queue applied and cleared<br/>

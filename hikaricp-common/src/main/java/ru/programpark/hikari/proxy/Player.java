@@ -6,7 +6,7 @@ import lombok.Cleanup;
 import lombok.SneakyThrows;
 import org.apache.commons.lang3.reflect.MethodUtils;
 import ru.programpark.hikari.pool.HikariPool;
-import ru.programpark.hikari.util.FSTHelper;
+import ru.programpark.hikari.util.Serializator;
 
 import java.lang.reflect.Method;
 import java.net.URL;
@@ -71,7 +71,7 @@ public class Player implements AutoCloseable
       this.pool = pool;
       this.connectionProxy = pool.getConnection();
       createInvocationQueueTable(connectionProxy.delegate);
-      if(createInvocationQueueTable(connectionProxy.delegate2)) {
+      if(connectionProxy.delegate2 == null || createInvocationQueueTable(connectionProxy.delegate2)) {
          select = delete = null;
          return;
       }
@@ -103,7 +103,7 @@ public class Player implements AutoCloseable
          String methodName = resultSet.getString(5);
          byte[] serializedArgs = resultSet.getBytes(6);
 
-         Object[] args = serializedArgs == null ? null : (Object[]) FSTHelper.FST.asObject(serializedArgs);
+         Object[] args = serializedArgs == null ? null : Serializator.fromBytes(serializedArgs);
 
          Class clazz = ProxyFactory.classByHashCode(classHashCode);
 

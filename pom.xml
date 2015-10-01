@@ -166,9 +166,9 @@
       </dependency>
 
       <dependency>
-         <groupId>de.ruedigermoeller</groupId>
-         <artifactId>fst</artifactId>
-         <version>2.23</version>
+         <groupId>com.esotericsoftware</groupId>
+         <artifactId>kryo</artifactId>
+         <version>3.0.0</version>
       </dependency>
 
       <dependency>

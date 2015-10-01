@@ -24,7 +24,6 @@ import javax.management.MBeanServerConnection;
 import javax.management.ObjectName;
 import javax.management.remote.JMXConnectorFactory;
 import javax.management.remote.JMXServiceURL;
-import javax.sql.DataSource;
 import java.sql.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -66,14 +65,20 @@ public final class HikariPool extends BaseHikariPool
    public HikariPool(HikariConfig configuration, String username, String password)
    {
       super(configuration, username, password);
+
+      // service:jmx:rmi://<TARGET_MACHINE>:<JMX_RMI_SERVER_PORT>/jndi/rmi://<TARGET_MACHINE>:<RMI_REGISTRY_PORT>/jmxrmi
+      String url = configuration.getTwinJmxUrl();
+      if(url == null) {
+         LOGGER.info("No twin DataSource URL configured");
+         return;
+      }
+      if(!url.startsWith("service:jmx:rmi:"))
+         url = "service:jmx:rmi:///jndi/rmi://" + url + "/jmxrmi";
+
       @Cleanup Player player = new Player(this);
+
       if(player.play())
          try {
-            // service:jmx:rmi://<TARGET_MACHINE>:<JMX_RMI_SERVER_PORT>/jndi/rmi://<TARGET_MACHINE>:<RMI_REGISTRY_PORT>/jmxrmi
-            String url = configuration.getTwinJmxUrl();
-            if(!url.startsWith("service:jmx:rmi:"))
-               url = "service:jmx:rmi:///jndi/rmi://" + url + "/jmxrmi";
-
             MBeanServerConnection connection = JMXConnectorFactory.connect(new JMXServiceURL(url), null).getMBeanServerConnection();
 
             final ObjectName poolName = new ObjectName("ru.programpark.hikari:type=Pool (" + configuration.getPoolName() + ")");
@@ -92,7 +97,7 @@ public final class HikariPool extends BaseHikariPool
          } catch(InterruptedException ie) {
             Thread.currentThread().interrupt();
          } catch(Exception e) {
-            LOGGER.info("Twin not found", e);
+            LOGGER.info("No twin DataSource accessible under URL " + url, e);
          }
    }
 

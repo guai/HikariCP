@@ -34,6 +34,7 @@ public class Test
       HikariConfig cfg = new HikariConfig();
       cfg.setDataSource(ds1);
       cfg.setDataSource2(ds2);
+
       cfg.setPoolName("activitiHikariCP");
       cfg.setRegisterMbeans(true);
       cfg.setAllowPoolSuspension(true);
