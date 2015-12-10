@@ -16,6 +16,17 @@
 
 package com.zaxxer.hikari;
 
+import com.codahale.metrics.MetricRegistry;
+import com.codahale.metrics.health.HealthCheckRegistry;
+import com.zaxxer.hikari.metrics.MetricsTrackerFactory;
+import com.zaxxer.hikari.pool.ProxyFactory;
+import com.zaxxer.hikari.util.PropertyElf;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import javax.naming.InitialContext;
+import javax.naming.NamingException;
+import javax.sql.DataSource;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -29,18 +40,6 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import javax.naming.InitialContext;
-import javax.naming.NamingException;
-import javax.sql.DataSource;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import com.codahale.metrics.MetricRegistry;
-import com.codahale.metrics.health.HealthCheckRegistry;
-import com.zaxxer.hikari.metrics.MetricsTrackerFactory;
-import com.zaxxer.hikari.util.PropertyElf;
 
 import static com.zaxxer.hikari.util.UtilityElf.getNullIfEmpty;
 
@@ -68,6 +67,7 @@ public class HikariConfig implements HikariConfigMXBean
 
    // Properties NOT changeable at runtime
    //
+   private String proxyFactoryClassName = ProxyFactory.class.getName();
    private String catalog;
    private String connectionInitSql;
    private String connectionTestQuery;
@@ -140,6 +140,14 @@ public class HikariConfig implements HikariConfigMXBean
       this();
 
       loadProperties(propertyFileName);
+   }
+
+   public String getProxyFactoryClassName() {
+      return proxyFactoryClassName;
+   }
+
+   public void setProxyFactoryClassName(String proxyFactoryClassName) {
+      this.proxyFactoryClassName = proxyFactoryClassName;
    }
 
    /**

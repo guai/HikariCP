@@ -1,44 +1,31 @@
 package com.zaxxer.hikari.pool;
 
-import static com.zaxxer.hikari.pool.ProxyConnection.DIRTY_BIT_AUTOCOMMIT;
-import static com.zaxxer.hikari.pool.ProxyConnection.DIRTY_BIT_CATALOG;
-import static com.zaxxer.hikari.pool.ProxyConnection.DIRTY_BIT_ISOLATION;
-import static com.zaxxer.hikari.pool.ProxyConnection.DIRTY_BIT_NETTIMEOUT;
-import static com.zaxxer.hikari.pool.ProxyConnection.DIRTY_BIT_READONLY;
-import static com.zaxxer.hikari.util.UtilityElf.createInstance;
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.metrics.MetricsTracker;
+import com.zaxxer.hikari.util.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import javax.management.MBeanServer;
+import javax.management.ObjectName;
+import javax.sql.DataSource;
 import java.lang.management.ManagementFactory;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Properties;
-import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 
-import javax.management.MBeanServer;
-import javax.management.ObjectName;
-import javax.sql.DataSource;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import com.zaxxer.hikari.HikariConfig;
-import com.zaxxer.hikari.metrics.MetricsTracker;
-import com.zaxxer.hikari.util.ClockSource;
-import com.zaxxer.hikari.util.DefaultThreadFactory;
-import com.zaxxer.hikari.util.DriverDataSource;
-import com.zaxxer.hikari.util.PropertyElf;
-import com.zaxxer.hikari.util.UtilityElf;
+import static com.zaxxer.hikari.pool.ProxyConnection.*;
+import static com.zaxxer.hikari.util.UtilityElf.createInstance;
 
 abstract class PoolBase
 {
    private final Logger LOGGER = LoggerFactory.getLogger(PoolBase.class);
    protected final HikariConfig config;
    protected final String poolName;
+   private final IProxyFactory proxyFactory;
    protected long connectionTimeout;
 
    private static final String[] RESET_STATES = {"readOnly", "autoCommit", "isolation", "catalog", "netTimeout"};
@@ -80,6 +67,12 @@ abstract class PoolBase
       this.poolName = config.getPoolName();
       this.connectionTimeout = config.getConnectionTimeout();
       this.lastConnectionFailure = new AtomicReference<>();
+
+      try {
+         this.proxyFactory = (IProxyFactory) Class.forName(config.getProxyFactoryClassName()).newInstance();
+      } catch(ReflectiveOperationException e) {
+         throw new RuntimeException("Unable to get proxy factory instance for className=" + config.getProxyFactoryClassName(), e);
+      }
 
       initializeDataSource();
    }
@@ -219,7 +212,7 @@ abstract class PoolBase
    /**
     * Register MBeans for HikariConfig and HikariPool.
     *
-    * @param pool a HikariPool instance
+    * @param hikariPool a HikariPool instance
     */
    void registerMBeans(final HikariPool hikariPool)
    {
@@ -455,7 +448,7 @@ abstract class PoolBase
     *
     * @param connection the connection to initialize
     * @param sql the SQL to execute
-    * @param isAutoCommit whether to commit the SQL after execution or not
+    * @param isCommit whether to commit the SQL after execution or not
     * @throws SQLException throws if the init SQL execution fails
     */
    private void executeSql(final Connection connection, final String sql, final boolean isCommit, final boolean isRollback) throws SQLException
@@ -493,6 +486,10 @@ abstract class PoolBase
          executor.setKeepAliveTime(15, TimeUnit.SECONDS);
          netTimeoutExecutor = executor;
       }
+   }
+
+   public IProxyFactory getProxyFactory() {
+      return proxyFactory;
    }
 
    private static class SynchronousExecutor implements Executor
@@ -578,7 +575,7 @@ abstract class PoolBase
 
       /**
        * @param poolEntry
-       * @param now
+       * @param startTime
        */
       void recordBorrowStats(final PoolEntry poolEntry, final long startTime)
       {

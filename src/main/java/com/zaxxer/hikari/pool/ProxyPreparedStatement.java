@@ -50,7 +50,7 @@ public abstract class ProxyPreparedStatement extends ProxyStatement implements P
    {
       connection.markCommitStateDirty();
       ResultSet resultSet = ((PreparedStatement) delegate).executeQuery();
-      return ProxyFactory.getProxyResultSet(connection, this, resultSet); 
+      return connection.getProxyFactory().getProxyResultSet(connection, this, resultSet);
    }
 
    /** {@inheritDoc} */

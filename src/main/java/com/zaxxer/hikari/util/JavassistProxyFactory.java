@@ -16,38 +16,18 @@
 
 package com.zaxxer.hikari.util;
 
-import java.lang.reflect.Array;
-import java.sql.CallableStatement;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.Statement;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-
-import com.zaxxer.hikari.pool.ProxyCallableStatement;
-import com.zaxxer.hikari.pool.ProxyConnection;
-import com.zaxxer.hikari.pool.ProxyFactory;
-import com.zaxxer.hikari.pool.ProxyPreparedStatement;
-import com.zaxxer.hikari.pool.ProxyResultSet;
-import com.zaxxer.hikari.pool.ProxyStatement;
-
-import javassist.ClassPool;
-import javassist.CtClass;
-import javassist.CtMethod;
-import javassist.CtNewMethod;
-import javassist.LoaderClassPath;
-import javassist.Modifier;
-import javassist.NotFoundException;
+import com.zaxxer.hikari.pool.*;
+import javassist.*;
 import javassist.bytecode.ClassFile;
+
+import java.lang.reflect.Array;
+import java.sql.*;
+import java.util.*;
 
 /**
  * This class generates the proxy objects for {@link Connection}, {@link Statement},
  * {@link PreparedStatement}, and {@link CallableStatement}.  Additionally it injects
- * method bodies into the {@link ProxyFactory} class methods that can instantiate
+ * method bodies into the {@link IProxyFactory} class methods that can instantiate
  * instances of the generated proxies.
  *
  * @author Brett Wooldridge
@@ -68,7 +48,7 @@ public final class JavassistProxyFactory
          generateProxyClass(Connection.class, ProxyConnection.class.getName(), methodBody);
          generateProxyClass(Statement.class, ProxyStatement.class.getName(), methodBody);
          generateProxyClass(ResultSet.class, ProxyResultSet.class.getName(), methodBody);
-         
+
          // For these we have to cast the delegate
          methodBody = "{ try { return ((cast) delegate).method($$); } catch (SQLException e) { throw checkException(e); } }";
          generateProxyClass(PreparedStatement.class, ProxyPreparedStatement.class.getName(), methodBody);
@@ -83,11 +63,13 @@ public final class JavassistProxyFactory
 
    private static void modifyProxyFactory() throws Exception
    {
-      System.out.println("Generating method bodies for com.zaxxer.hikari.proxy.ProxyFactory");
+      System.out.println("Generating method bodies for com.zaxxer.hikari.proxy.IProxyFactory");
 
       String packageName = ProxyConnection.class.getPackage().getName();
       CtClass proxyCt = classPool.getCtClass("com.zaxxer.hikari.pool.ProxyFactory");
-      for (CtMethod method : proxyCt.getMethods()) {
+      for (CtMethod method : proxyCt.getDeclaredMethods()) {
+         if ((method.getModifiers() & Modifier.VOLATILE) == Modifier.VOLATILE)
+            continue;
          switch (method.getName()) {
          case "getProxyConnection":
             method.setBody("{return new " + packageName + ".HikariProxyConnection($$);}");
@@ -103,7 +85,6 @@ public final class JavassistProxyFactory
             break;
          case "getProxyResultSet":
             method.setBody("{return new " + packageName + ".HikariProxyResultSet($$);}");
-            break;
          }
       }
 

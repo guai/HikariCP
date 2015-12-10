@@ -109,7 +109,7 @@ public abstract class ProxyStatement implements Statement
    {
       connection.markCommitStateDirty();
       ResultSet resultSet = delegate.executeQuery(sql);
-      return ProxyFactory.getProxyResultSet(connection, this, resultSet); 
+      return connection.getProxyFactory().getProxyResultSet(connection, this, resultSet);
    }
 
    /** {@inheritDoc} */
@@ -214,7 +214,7 @@ public abstract class ProxyStatement implements Statement
       final ResultSet resultSet = delegate.getResultSet();
       if (resultSet != null) {
          if (proxyResultSet == null || ((ProxyResultSet) proxyResultSet).delegate != resultSet) {
-            proxyResultSet = ProxyFactory.getProxyResultSet(connection, this, resultSet);
+            proxyResultSet = connection.getProxyFactory().getProxyResultSet(connection, this, resultSet);
          }
       }
       else {

@@ -15,19 +15,18 @@
  */
 package com.zaxxer.hikari.pool;
 
+import com.zaxxer.hikari.util.ClockSource;
+import com.zaxxer.hikari.util.ConcurrentBag.IConcurrentBagEntry;
+import com.zaxxer.hikari.util.FastList;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Comparator;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import com.zaxxer.hikari.util.ClockSource;
-import com.zaxxer.hikari.util.ConcurrentBag.IConcurrentBagEntry;
-import com.zaxxer.hikari.util.FastList;
 
 /**
  * Entry used in the ConcurrentBag to track Connection instances.
@@ -96,7 +95,7 @@ final class PoolEntry implements IConcurrentBagEntry
 
    Connection createProxyConnection(final ProxyLeakTask leakTask, final long now)
    {
-      return ProxyFactory.getProxyConnection(this, connection, openStatements, leakTask, now, isReadOnly, isAutoCommit);
+      return getProxyFactory().getProxyConnection(this, connection, openStatements, leakTask, now, isReadOnly, isAutoCommit);
    }
 
    void resetConnectionState(final ProxyConnection proxyConnection, final int dirtyBits) throws SQLException
@@ -190,5 +189,9 @@ final class PoolEntry implements IConcurrentBagEntry
       default:
          return "Invalid";
       }
+   }
+
+   public IProxyFactory getProxyFactory() {
+      return hikariPool.getProxyFactory();
    }
 }
