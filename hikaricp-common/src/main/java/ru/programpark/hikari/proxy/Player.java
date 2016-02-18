@@ -50,16 +50,21 @@ public class Player implements AutoCloseable
       connection.setAutoCommit(false);
       DatabaseMetaData metaData = connection.getMetaData();
       @Cleanup ResultSet tables = metaData.getTables(null, null, "invocation_queue", new String[] { "TABLE" });
+      @Cleanup ResultSet TABLES = metaData.getTables(null, null, "INVOCATION_QUEUE", new String[] { "TABLE" });
 
-      if (tables.next())
+      if (tables.next() || TABLES.next())
          return false;
       else {
          @Cleanup Statement statement = connection.createStatement();
          String db = metaData.getDatabaseProductName().toLowerCase();
          URL resource = Resources.getResource("create-invocation_queue-" + db + ".sql");
          String sqls = Resources.asCharSource(resource, Charset.forName("UTF-8")).read();
-         for (String sql : Splitter.on("\n\n").omitEmptyStrings().split(sqls))
+         for (String sql : Splitter.on("\n\n").omitEmptyStrings().split(sqls)) {
+            sql = sql.trim();
+            if (sql.endsWith(";"))
+               sql = sql.substring(0, sql.length() - 1);
             statement.execute(sql);
+         }
          connection.commit();
          return true;
       }
