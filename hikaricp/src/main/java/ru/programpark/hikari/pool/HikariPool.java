@@ -83,12 +83,11 @@ public final class HikariPool extends BaseHikariPool
 
             final ObjectName poolName = new ObjectName("ru.programpark.hikari:type=Pool (" + configuration.getPoolName() + ")");
 
-            HikariPoolMBean twinPool = JMX.newMXBeanProxy(connection,
-                                                          poolName, HikariPoolMBean.class);
+            HikariPoolMBean twinPool = JMX.newMXBeanProxy(connection, poolName, HikariPoolMBean.class);
 
             twinPool.suspendPool();
             while(twinPool.getActiveConnections() > 0)
-               Thread.sleep(10);
+               Thread.sleep(100);
 
             player.play();
 

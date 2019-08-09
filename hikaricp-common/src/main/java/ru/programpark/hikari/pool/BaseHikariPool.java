@@ -70,7 +70,6 @@ public abstract class BaseHikariPool implements HikariPoolMBean, IBagStateListen
    public static final int POOL_RUNNING = 0;
    public static final int POOL_SUSPENDED = 1;
    public static final int POOL_SHUTDOWN = 2;
-   public static final int POOL_FALLBACK = 3;
 
    public final String catalog;
    public final boolean isReadOnly;
@@ -90,6 +89,7 @@ public abstract class BaseHikariPool implements HikariPoolMBean, IBagStateListen
 
    public volatile int poolState;
    public volatile int prevPoolState;
+   public boolean fallback = false;
    protected volatile long connectionTimeout;
    protected volatile long validationTimeout;
    
@@ -372,7 +372,10 @@ public abstract class BaseHikariPool implements HikariPoolMBean, IBagStateListen
 
    @Override public void restoreDirect()
    {
-      prevPoolState = POOL_RUNNING;
+      if (poolState != POOL_SUSPENDED) {
+         throw new IllegalStateException("Pool " + configuration.getPoolName() + " is not suspended on restoreDirect call");
+      }
+      fallback = false;
    }
 
    /** {@inheritDoc} */
@@ -390,7 +393,7 @@ public abstract class BaseHikariPool implements HikariPoolMBean, IBagStateListen
    {
       suspendResumeLock.acquire();
       try {
-         poolState = POOL_FALLBACK;
+         fallback = true;
       }
       finally {
          suspendResumeLock.release();

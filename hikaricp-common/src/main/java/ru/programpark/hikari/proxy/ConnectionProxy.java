@@ -82,7 +82,7 @@ public abstract class ConnectionProxy implements IHikariConnectionProxy
             pool.setupConnection(this.delegate2);
          }
          catch (SQLException e) {
-            pool.poolState = HikariPool.POOL_FALLBACK;
+            pool.fallback = true;
             this.delegate2 = null;
             LOGGER.warn("Error getting slave connection");
          }

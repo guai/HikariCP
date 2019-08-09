@@ -11,6 +11,7 @@ import ru.programpark.hikari.util.Serializator;
 import java.lang.reflect.Method;
 import java.net.URL;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.sql.*;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -18,10 +19,10 @@ import java.util.Iterator;
 public class Player implements AutoCloseable
 {
 
-   static int CallableStatementHashCode;
-   static int ConnectionHashCode;
-   static int PreparedStatementHashCode;
-   static int StatementHashCode;
+   private static int CallableStatementHashCode;
+   private static int ConnectionHashCode;
+   private static int PreparedStatementHashCode;
+   private static int StatementHashCode;
 
    static {
       try {
@@ -34,8 +35,8 @@ public class Player implements AutoCloseable
       }
    }
 
-   static Class[] emptyClassArray = new Class[]{};
-   static Object[] emptyObjectArray = new Object[]{};
+   private static Class[] emptyClassArray = new Class[]{};
+   private static Object[] emptyObjectArray = new Object[]{};
 
    private final PreparedStatement select;
    private final PreparedStatement delete;
@@ -58,7 +59,7 @@ public class Player implements AutoCloseable
          @Cleanup Statement statement = connection.createStatement();
          String db = metaData.getDatabaseProductName().toLowerCase();
          URL resource = Resources.getResource("create-invocation_queue-" + db + ".sql");
-         String sqls = Resources.asCharSource(resource, Charset.forName("UTF-8")).read();
+         String sqls = Resources.asCharSource(resource, StandardCharsets.UTF_8).read();
          for (String sql : Splitter.on("\n\n").omitEmptyStrings().split(sqls)) {
             sql = sql.trim();
             if (sql.endsWith(";"))
@@ -75,8 +76,7 @@ public class Player implements AutoCloseable
    {
       this.pool = pool;
       this.connectionProxy = pool.getConnection();
-      createInvocationQueueTable(connectionProxy.delegate);
-      if(connectionProxy.delegate2 == null || createInvocationQueueTable(connectionProxy.delegate2)) {
+      if (connectionProxy.delegate2 == null || createInvocationQueueTable(connectionProxy.delegate2)) {
          select = delete = null;
          return;
       }
@@ -84,7 +84,7 @@ public class Player implements AutoCloseable
       delete = connectionProxy.delegate2.prepareStatement("DELETE FROM invocation_queue WHERE id = ?");
    }
 
-   static Class[] argsClasses(Object[] args)
+   private static Class[] argsClasses(Object[] args)
    {
       Class[] result = new Class[args.length];
       for (int i = 0; i < args.length; i++) {
@@ -97,8 +97,8 @@ public class Player implements AutoCloseable
    @SneakyThrows
    public boolean play()
    {
-      if(select == null)
-         return false;
+      if(select == null) return false;
+
       @Cleanup ResultSet resultSet = select.executeQuery();
       while (resultSet.next()) {
          int id = resultSet.getInt(1);
@@ -142,10 +142,6 @@ public class Player implements AutoCloseable
 
          }
 
-         else {
-            throw new AssertionError("should not reach here");
-         }
-
          delete.setInt(1, id);
          delete.addBatch();
       }
@@ -154,7 +150,7 @@ public class Player implements AutoCloseable
       return true;
    }
 
-   static void close(AutoCloseable what) {
+   private static void close(AutoCloseable what) {
       if(what == null)
          return;
       try {
@@ -163,7 +159,7 @@ public class Player implements AutoCloseable
       }
    }
 
-   static <T extends AutoCloseable> void closeAll(Iterable<T> iterable)
+   private static <T extends AutoCloseable> void closeAll(Iterable<T> iterable)
    {
       Iterator<T> iterator = iterable.iterator();
       while (iterator.hasNext()) {
