@@ -51,6 +51,10 @@ public abstract class ProxyResultSet implements ResultSet
       return this.getClass().getSimpleName() + '@' + System.identityHashCode(this) + " wrapping " + delegate;
    }
 
+   public char getClassId() {
+      return 'R';
+   }
+
    // **********************************************************************
    //                 Overridden java.sql.ResultSet Methods
    // **********************************************************************

@@ -16,7 +16,9 @@
 
 package com.zaxxer.hikari.pool;
 
+import com.zaxxer.hikari.util.DontRecord;
 import com.zaxxer.hikari.util.FastList;
+import com.zaxxer.hikari.util.Marshaller;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,7 +26,9 @@ import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Proxy;
 import java.sql.*;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Set;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executor;
 
 import static com.zaxxer.hikari.util.ClockSource.currentTime;
@@ -52,7 +56,7 @@ public abstract class ProxyConnection implements Connection
 
    private final PoolEntry poolEntry;
    private final ProxyLeakTask leakTask;
-   private final FastList<Statement> openStatements;
+   private final FastList<ProxyStatement> openStatements;
 
    private int dirtyBits;
    private long lastAccess;
@@ -64,6 +68,12 @@ public abstract class ProxyConnection implements Connection
    private int transactionIsolation;
    private String dbcatalog;
    private String dbschema;
+
+   // ha
+   final ConcurrentLinkedQueue<Record> invocationQueue;
+   Connection twinDelegate = null;
+   private Record tailRecord;
+   private PreparedStatement fallbackInsert;
 
    // static initializer
    static {
@@ -83,7 +93,7 @@ public abstract class ProxyConnection implements Connection
       ERROR_CODES.add(2399);
    }
 
-   protected ProxyConnection(final PoolEntry poolEntry, final Connection connection, final FastList<Statement> openStatements, final ProxyLeakTask leakTask, final long now, final boolean isReadOnly, final boolean isAutoCommit) {
+   protected ProxyConnection(final PoolEntry poolEntry, final Connection connection, final FastList<ProxyStatement> openStatements, final ProxyLeakTask leakTask, final long now, final boolean isReadOnly, final boolean isAutoCommit) {
       this.poolEntry = poolEntry;
       this.delegate = connection;
       this.openStatements = openStatements;
@@ -91,6 +101,19 @@ public abstract class ProxyConnection implements Connection
       this.lastAccess = now;
       this.isReadOnly = isReadOnly;
       this.isAutoCommit = isAutoCommit;
+
+      HikariPool pool = poolEntry.hikariPool;
+      // already under lock
+      if (!pool.fallback)
+         try {
+            this.twinDelegate = pool.config.getTwinDataSource().getConnection();
+            pool.setupConnection(this.twinDelegate);
+         } catch (SQLException | PoolBase.ConnectionSetupException e) {
+            pool.fallback = true;
+            this.twinDelegate = null;
+            LOGGER.warn("twin connection failed", e);
+         }
+      this.invocationQueue = new ConcurrentLinkedQueue<>();
    }
 
    /** {@inheritDoc} */
@@ -98,6 +121,10 @@ public abstract class ProxyConnection implements Connection
    public final String toString()
    {
       return this.getClass().getSimpleName() + '@' + System.identityHashCode(this) + " wrapping " + delegate;
+   }
+
+   public char getClassId() {
+      return 'C';
    }
 
    // ***********************************************************************
@@ -168,7 +195,83 @@ public abstract class ProxyConnection implements Connection
       return sqle;
    }
 
-   final synchronized void untrackStatement(final Statement statement)
+   public final void checkTwinException(final SQLException sqle) throws SQLException {
+      if (LOGGER.isTraceEnabled())
+         LOGGER.trace(getClass().getName() + ".checkTwinException", sqle);
+      poolEntry.hikariPool.fallback();
+      if (twinDelegate != null) {
+         try {
+            twinDelegate.close();
+         } catch (SQLException e) {
+            LOGGER.error("Failed to close twin connection", e);
+         }
+         twinDelegate = null;
+      }
+      drainQueue();
+   }
+
+   final boolean isFallbackMode() {
+      return twinDelegate == null;
+   }
+
+   private void drainQueue() throws SQLException {
+      try {
+         if (fallbackInsert == null)
+            fallbackInsert = delegate.prepareStatement("INSERT INTO invocation_queue (connection_id, statement_id, class, method, args) VALUES (?, ?, ?, ?, ?)");
+
+         for (ProxyStatement openStatement : openStatements)
+            openStatement.drainQueue();
+
+         int i = 0;
+         Iterator<Record> iterator = invocationQueue.iterator();
+         while (iterator.hasNext()) {
+            Record record = iterator.next();
+
+            fallbackInsert.setInt(1, record.connectionId);
+            fallbackInsert.setInt(2, record.statementId);
+            fallbackInsert.setString(3, String.valueOf(record.classId));
+            fallbackInsert.setString(4, record.method);
+            if (record.args.length == 0)
+               fallbackInsert.setNull(5, Types.NULL);
+            else
+               fallbackInsert.setBytes(5, Marshaller.toBytes(record.args));
+
+            fallbackInsert.addBatch();
+            iterator.remove();
+            i++;
+         }
+         if (i > 0)
+            fallbackInsert.executeBatch();
+         if (!delegate.getAutoCommit())
+            delegate.commit();
+      } catch (SQLException e) {
+         throw checkException(e);
+      }
+   }
+
+   private int getConnectionId() {
+      return System.identityHashCode(this);
+   }
+
+   private int getStatementId() {
+      return 0;
+   }
+
+   private void clearSuccessful() {
+      Iterator<Record> iterator = invocationQueue.iterator();
+      while (iterator.hasNext())
+         if (iterator.next().statementId != 0)
+            iterator.remove();
+   }
+
+   @SuppressWarnings("WeakerAccess")
+   protected final void invoked(String method, Object[] args) {
+      invocationQueue.add(tailRecord = new Record(getConnectionId(), getStatementId(), getClassId(), method, args));
+      if (LOGGER.isTraceEnabled())
+         LOGGER.trace(tailRecord.toString());
+   }
+
+   final synchronized void untrackStatement(final ProxyStatement statement)
    {
       openStatements.remove(statement);
    }
@@ -190,7 +293,7 @@ public abstract class ProxyConnection implements Connection
 
    private synchronized <T extends Statement> T trackStatement(final T statement)
    {
-      openStatements.add(statement);
+      openStatements.add((ProxyStatement) statement);
 
       return statement;
    }
@@ -236,6 +339,15 @@ public abstract class ProxyConnection implements Connection
                delegate.rollback();
                lastAccess = currentTime();
                LOGGER.debug("{} - Executed rollback on connection {} due to dirty commit state on close().", poolEntry.getPoolName(), delegate);
+               if (!isFallbackMode())
+                  try {
+                     twinDelegate.rollback();
+                  } catch (SQLException e) {
+                     checkTwinException(e);
+                  }
+            } else if (isFallbackMode()) {
+               invoked("close ()V", Marshaller.emptyObjectArray);
+               drainQueue();
             }
 
             if (dirtyBits != 0) {
@@ -244,6 +356,12 @@ public abstract class ProxyConnection implements Connection
             }
 
             delegate.clearWarnings();
+            if (!isFallbackMode())
+               try {
+                  twinDelegate.clearWarnings();
+               } catch (SQLException e) {
+                  checkTwinException(e);
+               }
          }
          catch (SQLException e) {
             // when connections are aborted, exceptions are often thrown that should not reach the application
@@ -253,6 +371,7 @@ public abstract class ProxyConnection implements Connection
          }
          finally {
             delegate = ClosedConnection.CLOSED_CONNECTION;
+            twinDelegate = null;
             poolEntry.recycle(lastAccess);
          }
       }
@@ -261,6 +380,7 @@ public abstract class ProxyConnection implements Connection
    /** {@inheritDoc} */
    @Override
    @SuppressWarnings("RedundantThrows")
+   @DontRecord
    public boolean isClosed() throws SQLException
    {
       return (delegate == ClosedConnection.CLOSED_CONNECTION);
@@ -270,84 +390,204 @@ public abstract class ProxyConnection implements Connection
    @Override
    public Statement createStatement() throws SQLException
    {
-      return ProxyFactory.getProxyStatement(this, trackStatement(delegate.createStatement()));
+      Statement statement = delegate.createStatement();
+      ProxyStatement result = trackStatement(ProxyFactory.getProxyStatement(this, statement));
+      tailRecord.statementId = System.identityHashCode(result);
+
+      if (!isFallbackMode())
+         try {
+            result.twinDelegate = twinDelegate.createStatement();
+         } catch (SQLException e) {
+            checkTwinException(e);
+         }
+      return result;
    }
 
    /** {@inheritDoc} */
    @Override
    public Statement createStatement(int resultSetType, int concurrency) throws SQLException
    {
-      return ProxyFactory.getProxyStatement(this, trackStatement(delegate.createStatement(resultSetType, concurrency)));
+      Statement statement = delegate.createStatement(resultSetType, concurrency);
+      ProxyStatement result = trackStatement(ProxyFactory.getProxyStatement(this, statement));
+      tailRecord.statementId = System.identityHashCode(result);
+
+      if (!isFallbackMode())
+         try {
+            result.twinDelegate = twinDelegate.createStatement(resultSetType, concurrency);
+         } catch (SQLException e) {
+            checkTwinException(e);
+         }
+      return result;
    }
 
    /** {@inheritDoc} */
    @Override
    public Statement createStatement(int resultSetType, int concurrency, int holdability) throws SQLException
    {
-      return ProxyFactory.getProxyStatement(this, trackStatement(delegate.createStatement(resultSetType, concurrency, holdability)));
+      Statement statement = delegate.createStatement(resultSetType, concurrency, holdability);
+      ProxyStatement result = trackStatement(ProxyFactory.getProxyStatement(this, statement));
+      tailRecord.statementId = System.identityHashCode(result);
+
+      if (!isFallbackMode())
+         try {
+            result.twinDelegate = twinDelegate.createStatement(resultSetType, concurrency, holdability);
+         } catch (SQLException e) {
+            checkTwinException(e);
+         }
+      return result;
    }
 
    /** {@inheritDoc} */
    @Override
    public CallableStatement prepareCall(String sql) throws SQLException
    {
-      return ProxyFactory.getProxyCallableStatement(this, trackStatement(delegate.prepareCall(sql)));
+      CallableStatement statement = delegate.prepareCall(sql);
+      ProxyCallableStatement result = trackStatement(ProxyFactory.getProxyCallableStatement(this, statement));
+      tailRecord.statementId = System.identityHashCode(result);
+
+      if (!isFallbackMode())
+         try {
+            result.twinDelegate = twinDelegate.prepareCall(sql);
+         } catch (SQLException e) {
+            checkTwinException(e);
+         }
+      return result;
    }
 
    /** {@inheritDoc} */
    @Override
    public CallableStatement prepareCall(String sql, int resultSetType, int concurrency) throws SQLException
    {
-      return ProxyFactory.getProxyCallableStatement(this, trackStatement(delegate.prepareCall(sql, resultSetType, concurrency)));
+      CallableStatement statement = delegate.prepareCall(sql, resultSetType, concurrency);
+      ProxyCallableStatement result = trackStatement(ProxyFactory.getProxyCallableStatement(this, statement));
+      tailRecord.statementId = System.identityHashCode(result);
+
+      if (!isFallbackMode())
+         try {
+            result.twinDelegate = twinDelegate.prepareCall(sql, resultSetType, concurrency);
+         } catch (SQLException e) {
+            checkTwinException(e);
+         }
+      return result;
    }
 
    /** {@inheritDoc} */
    @Override
    public CallableStatement prepareCall(String sql, int resultSetType, int concurrency, int holdability) throws SQLException
    {
-      return ProxyFactory.getProxyCallableStatement(this, trackStatement(delegate.prepareCall(sql, resultSetType, concurrency, holdability)));
+      CallableStatement statement = delegate.prepareCall(sql, resultSetType, concurrency, holdability);
+      ProxyCallableStatement result = trackStatement(ProxyFactory.getProxyCallableStatement(this, statement));
+      tailRecord.statementId = System.identityHashCode(result);
+
+      if (!isFallbackMode())
+         try {
+            result.twinDelegate = twinDelegate.prepareCall(sql, resultSetType, concurrency, holdability);
+         } catch (SQLException e) {
+            checkTwinException(e);
+         }
+      return result;
    }
 
    /** {@inheritDoc} */
    @Override
    public PreparedStatement prepareStatement(String sql) throws SQLException
    {
-      return ProxyFactory.getProxyPreparedStatement(this, trackStatement(delegate.prepareStatement(sql)));
+      PreparedStatement statement = delegate.prepareStatement(sql);
+      ProxyPreparedStatement result = trackStatement(ProxyFactory.getProxyPreparedStatement(this, statement));
+      tailRecord.statementId = System.identityHashCode(result);
+
+      if (!isFallbackMode())
+         try {
+            result.twinDelegate = twinDelegate.prepareStatement(sql);
+         } catch (SQLException e) {
+            checkTwinException(e);
+         }
+      return result;
    }
 
    /** {@inheritDoc} */
    @Override
    public PreparedStatement prepareStatement(String sql, int autoGeneratedKeys) throws SQLException
    {
-      return ProxyFactory.getProxyPreparedStatement(this, trackStatement(delegate.prepareStatement(sql, autoGeneratedKeys)));
+      PreparedStatement statement = delegate.prepareStatement(sql, autoGeneratedKeys);
+      ProxyPreparedStatement result = trackStatement(ProxyFactory.getProxyPreparedStatement(this, statement));
+      tailRecord.statementId = System.identityHashCode(result);
+
+      if (!isFallbackMode())
+         try {
+            result.twinDelegate = twinDelegate.prepareStatement(sql, autoGeneratedKeys);
+         } catch (SQLException e) {
+            checkTwinException(e);
+         }
+      return result;
    }
 
    /** {@inheritDoc} */
    @Override
    public PreparedStatement prepareStatement(String sql, int resultSetType, int concurrency) throws SQLException
    {
-      return ProxyFactory.getProxyPreparedStatement(this, trackStatement(delegate.prepareStatement(sql, resultSetType, concurrency)));
+      PreparedStatement statement = delegate.prepareStatement(sql, resultSetType, concurrency);
+      ProxyPreparedStatement result = trackStatement(ProxyFactory.getProxyPreparedStatement(this, statement));
+      tailRecord.statementId = System.identityHashCode(result);
+
+      if (!isFallbackMode())
+         try {
+            result.twinDelegate = twinDelegate.prepareStatement(sql, resultSetType, concurrency);
+         } catch (SQLException e) {
+            checkTwinException(e);
+         }
+      return result;
    }
 
    /** {@inheritDoc} */
    @Override
    public PreparedStatement prepareStatement(String sql, int resultSetType, int concurrency, int holdability) throws SQLException
    {
-      return ProxyFactory.getProxyPreparedStatement(this, trackStatement(delegate.prepareStatement(sql, resultSetType, concurrency, holdability)));
+      PreparedStatement statement = delegate.prepareStatement(sql, resultSetType, concurrency, holdability);
+      ProxyPreparedStatement result = trackStatement(ProxyFactory.getProxyPreparedStatement(this, statement));
+      tailRecord.statementId = System.identityHashCode(result);
+
+      if (!isFallbackMode())
+         try {
+            result.twinDelegate = twinDelegate.prepareStatement(sql, resultSetType, concurrency, holdability);
+         } catch (SQLException e) {
+            checkTwinException(e);
+         }
+      return result;
    }
 
    /** {@inheritDoc} */
    @Override
    public PreparedStatement prepareStatement(String sql, int[] columnIndexes) throws SQLException
    {
-      return ProxyFactory.getProxyPreparedStatement(this, trackStatement(delegate.prepareStatement(sql, columnIndexes)));
+      PreparedStatement statement = delegate.prepareStatement(sql, columnIndexes);
+      ProxyPreparedStatement result = trackStatement(ProxyFactory.getProxyPreparedStatement(this, statement));
+      tailRecord.statementId = System.identityHashCode(result);
+
+      if (!isFallbackMode())
+         try {
+            result.twinDelegate = twinDelegate.prepareStatement(sql, columnIndexes);
+         } catch (SQLException e) {
+            checkTwinException(e);
+         }
+      return result;
    }
 
    /** {@inheritDoc} */
    @Override
    public PreparedStatement prepareStatement(String sql, String[] columnNames) throws SQLException
    {
-      return ProxyFactory.getProxyPreparedStatement(this, trackStatement(delegate.prepareStatement(sql, columnNames)));
+      PreparedStatement statement = delegate.prepareStatement(sql, columnNames);
+      ProxyPreparedStatement result = trackStatement(ProxyFactory.getProxyPreparedStatement(this, statement));
+      tailRecord.statementId = System.identityHashCode(result);
+
+      if (!isFallbackMode())
+         try {
+            result.twinDelegate = twinDelegate.prepareStatement(sql, columnNames);
+         } catch (SQLException e) {
+            checkTwinException(e);
+         }
+      return result;
    }
 
    /** {@inheritDoc} */
@@ -360,20 +600,52 @@ public abstract class ProxyConnection implements Connection
 
    /** {@inheritDoc} */
    @Override
+   @DontRecord
    public void commit() throws SQLException
    {
       delegate.commit();
       isCommitStateDirty = false;
       lastAccess = currentTime();
+
+      if (!isFallbackMode()) {
+         try {
+            twinDelegate.commit();
+            for (ProxyStatement openStatement : openStatements)
+               openStatement.invocationQueue.clear();
+            clearSuccessful();
+         } catch (SQLException e) {
+            for (ProxyStatement openStatement : openStatements)
+               openStatement.drainQueue();
+            invoked("commit ()V", Marshaller.emptyObjectArray);
+            checkTwinException(e);
+         }
+      } else {
+         for (ProxyStatement openStatement : openStatements)
+            openStatement.drainQueue();
+         invoked("commit ()V", Marshaller.emptyObjectArray);
+         drainQueue();
+      }
    }
 
    /** {@inheritDoc} */
    @Override
+   @DontRecord
    public void rollback() throws SQLException
    {
       delegate.rollback();
       isCommitStateDirty = false;
       lastAccess = currentTime();
+
+      for (ProxyStatement openStatement : openStatements)
+         openStatement.invocationQueue.clear();
+      clearSuccessful();
+
+      if (!isFallbackMode())
+         try {
+            twinDelegate.rollback();
+         } catch (SQLException e) {
+            checkTwinException(e);
+         }
    }
 
    /** {@inheritDoc} */
@@ -383,6 +655,14 @@ public abstract class ProxyConnection implements Connection
       delegate.rollback(savepoint);
       isCommitStateDirty = false;
       lastAccess = currentTime();
+
+      if (!isFallbackMode())
+         try {
+            twinDelegate.rollback(savepoint);
+            // todo ????
+         } catch (SQLException e) {
+            checkTwinException(e);
+         }
    }
 
    /** {@inheritDoc} */
@@ -392,6 +672,13 @@ public abstract class ProxyConnection implements Connection
       delegate.setAutoCommit(autoCommit);
       isAutoCommit = autoCommit;
       dirtyBits |= DIRTY_BIT_AUTOCOMMIT;
+
+      if (!isFallbackMode())
+         try {
+            twinDelegate.setAutoCommit(autoCommit);
+         } catch (SQLException e) {
+            checkTwinException(e);
+         }
    }
 
    /** {@inheritDoc} */
@@ -402,6 +689,13 @@ public abstract class ProxyConnection implements Connection
       isReadOnly = readOnly;
       isCommitStateDirty = false;
       dirtyBits |= DIRTY_BIT_READONLY;
+
+      if (!isFallbackMode())
+         try {
+            twinDelegate.setReadOnly(readOnly);
+         } catch (SQLException e) {
+            checkTwinException(e);
+         }
    }
 
    /** {@inheritDoc} */
@@ -411,6 +705,13 @@ public abstract class ProxyConnection implements Connection
       delegate.setTransactionIsolation(level);
       transactionIsolation = level;
       dirtyBits |= DIRTY_BIT_ISOLATION;
+
+      if (!isFallbackMode())
+         try {
+            twinDelegate.setTransactionIsolation(level);
+         } catch (SQLException e) {
+            checkTwinException(e);
+         }
    }
 
    /** {@inheritDoc} */
@@ -420,6 +721,28 @@ public abstract class ProxyConnection implements Connection
       delegate.setCatalog(catalog);
       dbcatalog = catalog;
       dirtyBits |= DIRTY_BIT_CATALOG;
+
+      if (!isFallbackMode())
+         try {
+            twinDelegate.setCatalog(catalog);
+         } catch (SQLException e) {
+            checkTwinException(e);
+         }
+   }
+
+   @Override
+   @DontRecord
+   public void abort(Executor executor) throws SQLException {
+      delegate.abort(executor);
+
+//      if (!isFallbackMode())
+//         try {
+//            // todo ???
+//            twinDelegate.abort(command -> {
+//            });
+//         } catch (SQLException e) {
+//            checkTwinException(e);
+//         }
    }
 
    /** {@inheritDoc} */
@@ -429,6 +752,15 @@ public abstract class ProxyConnection implements Connection
       delegate.setNetworkTimeout(executor, milliseconds);
       networkTimeout = milliseconds;
       dirtyBits |= DIRTY_BIT_NETTIMEOUT;
+
+//      if (!isFallbackMode())
+//         try {
+//            // todo ???
+//            twinDelegate.setNetworkTimeout(command -> {
+//            }, milliseconds);
+//         } catch (SQLException e) {
+//            checkTwinException(e);
+//         }
    }
 
    /** {@inheritDoc} */
@@ -438,6 +770,13 @@ public abstract class ProxyConnection implements Connection
       delegate.setSchema(schema);
       dbschema = schema;
       dirtyBits |= DIRTY_BIT_SCHEMA;
+
+      if (!isFallbackMode())
+         try {
+            twinDelegate.setSchema(schema);
+         } catch (SQLException e) {
+            checkTwinException(e);
+         }
    }
 
    /** {@inheritDoc} */

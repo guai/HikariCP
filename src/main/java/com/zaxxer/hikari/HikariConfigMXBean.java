@@ -167,13 +167,19 @@ public interface HikariConfigMXBean
     */
    void setUsername(String username);
 
-
    /**
     * The name of the connection pool.
     *
     * @return the name of the connection pool
     */
    String getPoolName();
+
+   /**
+    * The name of the twin connection pool.
+    *
+    * @return the name of the twin connection pool
+    */
+   String getTwinPoolName();
 
    /**
     * Get the default catalog name to be set on connections.

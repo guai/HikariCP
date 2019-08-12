@@ -381,7 +381,7 @@ abstract class PoolBase
     * @param connection a Connection
     * @throws ConnectionSetupException thrown if any exception is encountered
     */
-   private void setupConnection(final Connection connection) throws ConnectionSetupException
+   void setupConnection(final Connection connection) throws ConnectionSetupException
    {
       try {
          if (networkTimeout == UNINITIALIZED) {

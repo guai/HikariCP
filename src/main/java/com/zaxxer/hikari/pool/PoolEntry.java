@@ -49,7 +49,7 @@ final class PoolEntry implements IConcurrentBagEntry
    private volatile ScheduledFuture<?> endOfLife;
 
    private final FastList<Statement> openStatements;
-   private final HikariPool hikariPool;
+   final HikariPool hikariPool;
 
    private final boolean isReadOnly;
    private final boolean isAutoCommit;
@@ -92,7 +92,7 @@ final class PoolEntry implements IConcurrentBagEntry
       this.endOfLife = endOfLife;
    }
 
-   Connection createProxyConnection(final ProxyLeakTask leakTask, final long now)
+   ProxyConnection createProxyConnection(final ProxyLeakTask leakTask, final long now)
    {
       return ProxyFactory.getProxyConnection(this, connection, openStatements, leakTask, now, isReadOnly, isAutoCommit);
    }
@@ -100,6 +100,9 @@ final class PoolEntry implements IConcurrentBagEntry
    void resetConnectionState(final ProxyConnection proxyConnection, final int dirtyBits) throws SQLException
    {
       hikariPool.resetConnectionState(connection, proxyConnection, dirtyBits);
+      Connection twinConnection = proxyConnection.twinDelegate;
+      if (twinConnection != null)
+         hikariPool.resetConnectionState(twinConnection, proxyConnection, dirtyBits);
    }
 
    String getPoolName()

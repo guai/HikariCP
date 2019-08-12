@@ -88,4 +88,13 @@ public interface HikariPoolMXBean
     * property has been set to {@code true}.
     */
    void resumePool();
+
+   String getPoolState();
+
+   boolean isFallback();
+
+   void synchronizeTwins();
+
+   @Deprecated(/*use synchronizeTwins*/)
+   void restoreDirect();
 }

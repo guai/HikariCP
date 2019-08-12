@@ -100,6 +100,12 @@ public class HikariConfig implements HikariConfigMXBean
 
    private volatile boolean sealed;
 
+   // HA Properties
+   //
+   private DataSource twinDataSource;
+   private String twinPoolName;
+   private String twinJmxUrl;
+
    /**
     * Default constructor
     */
@@ -398,6 +404,17 @@ public class HikariConfig implements HikariConfigMXBean
    {
       checkIfSealed();
       this.dataSource = dataSource;
+   }
+
+   public DataSource getTwinDataSource()
+   {
+      return twinDataSource;
+   }
+
+   public void setTwinDataSource(DataSource dataSource)
+   {
+      checkIfSealed();
+      this.twinDataSource = dataSource;
    }
 
    /**
@@ -781,6 +798,32 @@ public class HikariConfig implements HikariConfigMXBean
       this.poolName = poolName;
    }
 
+   @Override
+   public String getTwinPoolName()
+   {
+      return twinPoolName;
+   }
+
+   public void setTwinPoolName(String poolName)
+   {
+      checkIfSealed();
+      this.twinPoolName = poolName;
+   }
+
+   public String getTwinJmxUrl()
+   {
+      return twinJmxUrl;
+   }
+
+   public void setTwinJmxUrl(String url)
+   {
+      checkIfSealed();
+      // service:jmx:rmi://<TARGET_MACHINE>:<JMX_RMI_SERVER_PORT>/jndi/rmi://<TARGET_MACHINE>:<RMI_REGISTRY_PORT>/jmxrmi
+      if (!url.startsWith("service:jmx:rmi:"))
+         url = "service:jmx:rmi:///jndi/rmi://" + url + "/jmxrmi";
+      this.twinJmxUrl = url;
+   }
+
    /**
     * Get the ScheduledExecutorService used for housekeeping.
     *
@@ -916,6 +959,9 @@ public class HikariConfig implements HikariConfigMXBean
       }
       else if (isRegisterMbeans && poolName.contains(":")) {
          throw new IllegalArgumentException("poolName cannot contain ':' when used with JMX");
+      }
+      if(twinPoolName == null) {
+         twinPoolName = poolName;
       }
 
       // treat empty property as null

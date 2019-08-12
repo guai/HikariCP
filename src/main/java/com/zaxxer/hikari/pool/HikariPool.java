@@ -18,6 +18,7 @@ package com.zaxxer.hikari.pool;
 
 import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.health.HealthCheckRegistry;
+import com.google.common.base.Verify;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariPoolMXBean;
 import com.zaxxer.hikari.metrics.MetricsTrackerFactory;
@@ -28,36 +29,31 @@ import com.zaxxer.hikari.metrics.micrometer.MicrometerMetricsTrackerFactory;
 import com.zaxxer.hikari.util.ConcurrentBag;
 import com.zaxxer.hikari.util.ConcurrentBag.IBagStateListener;
 import com.zaxxer.hikari.util.SuspendResumeLock;
-import com.zaxxer.hikari.util.UtilityElf.DefaultThreadFactory;
+import com.zaxxer.hikari.util.UtilityElf.*;
 import io.micrometer.core.instrument.MeterRegistry;
+import lombok.Cleanup;
+import lombok.Getter;
+import lombok.SneakyThrows;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.management.JMX;
+import javax.management.MBeanServerConnection;
+import javax.management.ObjectName;
+import javax.management.remote.JMXConnectorFactory;
+import javax.management.remote.JMXServiceURL;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.SQLTransientConnectionException;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.*;
 
-import static com.zaxxer.hikari.util.ClockSource.currentTime;
-import static com.zaxxer.hikari.util.ClockSource.elapsedDisplayString;
-import static com.zaxxer.hikari.util.ClockSource.elapsedMillis;
-import static com.zaxxer.hikari.util.ClockSource.plusMillis;
+import static com.zaxxer.hikari.util.ClockSource.*;
 import static com.zaxxer.hikari.util.ConcurrentBag.IConcurrentBagEntry.STATE_IN_USE;
 import static com.zaxxer.hikari.util.ConcurrentBag.IConcurrentBagEntry.STATE_NOT_IN_USE;
-import static com.zaxxer.hikari.util.UtilityElf.createThreadPoolExecutor;
-import static com.zaxxer.hikari.util.UtilityElf.quietlySleep;
-import static com.zaxxer.hikari.util.UtilityElf.safeIsAssignableFrom;
+import static com.zaxxer.hikari.util.UtilityElf.*;
 import static java.util.Collections.unmodifiableCollection;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -77,6 +73,8 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
    public static final int POOL_SHUTDOWN = 2;
 
    public volatile int poolState;
+   @Getter
+   boolean fallback = false;
 
    private final long aliveBypassWindowMs = Long.getLong("com.zaxxer.hikari.aliveBypassWindowMs", MILLISECONDS.toMillis(500));
    private final long housekeepingPeriodMs = Long.getLong("com.zaxxer.hikari.housekeeping.periodMs", SECONDS.toMillis(30));
@@ -148,6 +146,48 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
          addConnectionExecutor.setCorePoolSize(1);
          addConnectionExecutor.setMaximumPoolSize(1);
       }
+
+      synchronizeTwins();
+   }
+
+   /**
+    * On pool start it should either be able to suspend twin pool, apply everything from twin's invocation_queue table to it's main dataSource, resume twin pool (become synchronized); or there should not be invocation_queue table in twin dataSource at all (first start)
+    * Thus double failure recovery looks like this: take latest database' dump and replicate it by hand; remove invocation_queue tables; launch one dataSource then another
+    */
+   @Override
+   public void synchronizeTwins() {
+
+      String url = config.getTwinJmxUrl();
+      Verify.verifyNotNull(url, "No twin DataSource URL configured");
+
+      @Cleanup Player player = new Player(this);
+
+      if (player.play())
+         try {
+            logger.info("Synchronization with twin...");
+            MBeanServerConnection connection = JMXConnectorFactory.connect(new JMXServiceURL(url), null).getMBeanServerConnection();
+
+            final ObjectName twinPoolName = new ObjectName("com.zaxxer.hikari:type=Pool (" + config.getTwinPoolName() + ")");
+
+            HikariPoolMXBean twinPool = JMX.newMXBeanProxy(connection, twinPoolName, HikariPoolMXBean.class);
+
+            twinPool.suspendPool();
+            while (twinPool.getActiveConnections() > 0)
+               Thread.sleep(100);
+
+            player.play();
+
+            twinPool.restoreDirect();
+            twinPool.resumePool();
+            resumePool();
+            logger.info("Synchronization completed.");
+         } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+         } catch (Exception e) {
+            logger.warn("Twin is not accessible at URL " + url, e);
+         }
+      else
+         logger.info("No synchronization with twin needed.");
    }
 
    /**
@@ -156,7 +196,7 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
     * @return a java.sql.Connection instance
     * @throws SQLException thrown if a timeout occurs trying to obtain a connection
     */
-   public Connection getConnection() throws SQLException
+   public ProxyConnection getConnection() throws SQLException
    {
       return getConnection(connectionTimeout);
    }
@@ -168,7 +208,7 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
     * @return a java.sql.Connection instance
     * @throws SQLException thrown if a timeout occurs trying to obtain a connection
     */
-   public Connection getConnection(final long hardTimeout) throws SQLException
+   public ProxyConnection getConnection(final long hardTimeout) throws SQLException
    {
       suspendResumeLock.acquire();
       final long startTime = currentTime();
@@ -391,6 +431,14 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
       }
    }
 
+   @Override
+   public void restoreDirect() {
+      if (poolState != POOL_SUSPENDED) {
+         throw new IllegalStateException("Pool " + config.getPoolName() + " is not suspended on restoreDirect call");
+      }
+      fallback = false;
+   }
+
    /** {@inheritDoc} */
    @Override
    public synchronized void resumePool()
@@ -399,6 +447,30 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
          poolState = POOL_NORMAL;
          fillPool();
          suspendResumeLock.resume();
+      }
+   }
+
+   @Override
+   public String getPoolState() {
+      switch (poolState) {
+         case POOL_NORMAL:
+            return "NORMAL";
+         case POOL_SUSPENDED:
+            return "SUSPENDED";
+         case POOL_SHUTDOWN:
+            return "SHUTDOWN";
+         default:
+            throw new RuntimeException("Unreachable reached");
+      }
+   }
+
+   @SneakyThrows
+   final void fallback() {
+      suspendResumeLock.acquire();
+      try {
+         fallback = true;
+      } finally {
+         suspendResumeLock.release();
       }
    }
 
@@ -492,6 +564,7 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
          if (poolState == POOL_NORMAL) { // we check POOL_NORMAL to avoid a flood of messages if shutdown() is running concurrently
             logger.error("{} - Error thrown while acquiring connection from data source", poolName, e.getCause());
             lastConnectionFailure.set(e);
+            suspendPool();
          }
          return null;
       }
@@ -499,6 +572,7 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
          if (poolState == POOL_NORMAL) { // we check POOL_NORMAL to avoid a flood of messages if shutdown() is running concurrently
             logger.debug("{} - Cannot acquire connection from data source", poolName, e);
             lastConnectionFailure.set(new ConnectionSetupException(e));
+            suspendPool();
          }
          return null;
       }
@@ -506,6 +580,7 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
          if (poolState == POOL_NORMAL) { // we check POOL_NORMAL to avoid a flood of messages if shutdown() is running concurrently
             logger.error("{} - Error thrown while acquiring connection from data source", poolName, e);
             lastConnectionFailure.set(new ConnectionSetupException(e));
+            suspendPool();
          }
          return null;
       }
